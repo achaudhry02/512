@@ -124,15 +124,17 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         throw profileError;
       }
 
-      let { data: stores, error: storesError } = await supabase
+      const storesResponse = await supabase
         .from("stores")
         .select("*")
         .eq("user_id", activeUser.id)
         .order("created_at", { ascending: true });
 
-      if (storesError) {
-        throw storesError;
+      if (storesResponse.error) {
+        throw storesResponse.error;
       }
+
+      let stores = storesResponse.data;
 
       if (!stores?.length) {
         const { data: newStore, error: storeError } = await supabase

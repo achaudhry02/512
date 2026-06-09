@@ -1,7 +1,7 @@
 "use client";
 
 import { Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useCommandCenter } from "@/lib/data-provider";
 
@@ -30,7 +30,7 @@ export default function SettingsPage() {
     });
   }, [profile, store]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setMessage(null);

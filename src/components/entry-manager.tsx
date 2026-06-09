@@ -1,7 +1,7 @@
 "use client";
 
 import { Edit3, Plus, Save, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { inDateRange, todayIso } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
 import type { TableName, TableRowMap } from "@/lib/types";
@@ -85,7 +85,7 @@ export function EntryManager<T extends TableName>({
     setFormOpen(true);
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setActionError(null);
