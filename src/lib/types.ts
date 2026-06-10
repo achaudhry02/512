@@ -136,6 +136,24 @@ export type DashboardMetric = {
   helper?: string;
 };
 
+export type ProfitLeakFinding = {
+  id: string;
+  type:
+    | "high_expense_category"
+    | "low_fuel_margin"
+    | "deli_waste"
+    | "payroll_ratio"
+    | "vendor_increase"
+    | "low_profit_margin";
+  severity: "critical" | "warning" | "watch";
+  title: string;
+  description: string;
+  recommendation: string;
+  metric: string;
+  date?: string;
+  impact?: number;
+};
+
 export const expenseCategories: ExpenseCategory[] = [
   "Inventory",
   "Payroll",

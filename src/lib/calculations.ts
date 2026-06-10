@@ -6,6 +6,7 @@ import type {
   FuelEntry,
   LotteryEntry,
   PayrollEntry,
+  ProfitLeakFinding,
 } from "@/lib/types";
 
 export const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -197,4 +198,231 @@ export function dailyChart(data: CommandCenterData, days = 14) {
       deli: sale.deli_sales,
       expenses: sum(data.expenses.filter((expense) => expense.date === sale.date).map((expense) => expense.amount)),
     }));
+}
+
+function average(values: number[]) {
+  const validValues = values.filter((value) => Number.isFinite(value));
+  return validValues.length ? sum(validValues) / validValues.length : 0;
+}
+
+function dayProfitMargin(data: CommandCenterData, sale: DailySale) {
+  const dayExpenses = data.expenses.filter((expense) => expense.date === sale.date);
+  const dayFuelEntries = data.fuel_entries.filter((entry) => entry.date === sale.date);
+  const dayLotteryEntries = data.lottery_entries.filter((entry) => entry.date === sale.date);
+  const dayDeliEntries = data.deli_entries.filter((entry) => entry.date === sale.date);
+  const dayPayrollEntries = data.payroll_entries.filter((entry) =>
+    inDateRange(sale.date, entry.date_range_start, entry.date_range_end),
+  );
+
+  const fuelProfitTotal = dayFuelEntries.length
+    ? sum(dayFuelEntries.map(fuelProfit))
+    : dailyFuelProfit(sale);
+  const lotteryProfitTotal = dayLotteryEntries.length
+    ? sum(dayLotteryEntries.map(lotteryProfit))
+    : dailyLotteryProfit(sale);
+  const deliProfitTotal = dayDeliEntries.length
+    ? sum(dayDeliEntries.map(deliGrossProfit))
+    : sale.deli_sales * 0.55;
+  const estimatedInsideGrossProfit = sale.inside_sales * 0.28;
+  const payrollCost = sum(dayPayrollEntries.map(payrollTotal));
+  const revenue = sale.inside_sales + sale.fuel_gallons_sold * sale.fuel_retail_price + sale.deli_sales;
+  const grossProfit = fuelProfitTotal + lotteryProfitTotal + deliProfitTotal + estimatedInsideGrossProfit;
+  const netProfit = grossProfit - totalExpenses(dayExpenses) - payrollCost;
+
+  return {
+    date: sale.date,
+    margin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+    netProfit,
+    revenue,
+  };
+}
+
+export function analyzeProfitLeaks(data: CommandCenterData): ProfitLeakFinding[] {
+  const findings: ProfitLeakFinding[] = [];
+  const sortedSales = [...data.daily_sales].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedExpenses = [...data.expenses].sort((a, b) => a.date.localeCompare(b.date));
+  const totalExpenseAmount = totalExpenses(sortedExpenses);
+  const categoryTotals = expensesByCategory(sortedExpenses);
+  const activeCategoryTotals = Object.entries(categoryTotals).filter(([, value]) => value > 0);
+  const averageCategorySpend = average(activeCategoryTotals.map(([, value]) => value));
+
+  for (const [category, amount] of activeCategoryTotals) {
+    const share = totalExpenseAmount > 0 ? (amount / totalExpenseAmount) * 100 : 0;
+    const unusuallyHigh =
+      amount > 250 && (share >= 35 || (averageCategorySpend > 0 && amount >= averageCategorySpend * 1.5));
+
+    if (unusuallyHigh) {
+      findings.push({
+        id: `expense-${category}`,
+        type: "high_expense_category",
+        severity: share >= 50 ? "critical" : "warning",
+        title: `${category} expenses are unusually high`,
+        description: `${category} is ${currency(amount)}, or ${percent(share)} of entered expenses.`,
+        recommendation:
+          category === "Fuel purchase"
+            ? "Compare fuel delivery invoices against gallons sold and confirm the tank reconciliation before the next order."
+            : "Review recent invoices, confirm each charge is tied to sales activity, and set an approval threshold for this category.",
+        metric: `${currency(amount)} spent`,
+        impact: amount,
+      });
+    }
+  }
+
+  const fuelMargins = [
+    ...data.fuel_entries.map((entry) => ({
+      date: entry.date,
+      margin: fuelMargin(entry),
+      profit: fuelProfit(entry),
+      source: "fuel entry",
+    })),
+    ...data.daily_sales
+      .filter((sale) => sale.fuel_gallons_sold > 0)
+      .map((sale) => ({
+        date: sale.date,
+        margin: sale.fuel_retail_price - sale.fuel_cost_per_gallon,
+        profit: dailyFuelProfit(sale),
+        source: "daily sales",
+      })),
+  ];
+  const averageFuelMargin = average(fuelMargins.map((entry) => entry.margin));
+  const lowFuelMarginDays = fuelMargins
+    .filter((entry) => entry.margin > 0 && (entry.margin < 0.18 || (averageFuelMargin > 0 && entry.margin < averageFuelMargin * 0.75)))
+    .sort((a, b) => a.margin - b.margin)
+    .slice(0, 2);
+
+  for (const entry of lowFuelMarginDays) {
+    findings.push({
+      id: `fuel-${entry.source}-${entry.date}`,
+      type: "low_fuel_margin",
+      severity: entry.margin < 0.12 ? "critical" : "warning",
+      title: `Low fuel margin on ${entry.date}`,
+      description: `Fuel margin was ${currency(entry.margin)} per gallon, below the target operating range.`,
+      recommendation:
+        "Check competitor pricing, confirm the latest rack cost, and consider a small retail price move before the next high-volume period.",
+      metric: `${currency(entry.margin)} / gal`,
+      date: entry.date,
+      impact: Math.abs(entry.profit),
+    });
+  }
+
+  for (const entry of data.deli_entries) {
+    const wasteRate = entry.deli_sales > 0 ? (entry.waste_amount / entry.deli_sales) * 100 : 0;
+    const grossMargin = entry.deli_sales > 0 ? (deliGrossProfit(entry) / entry.deli_sales) * 100 : 0;
+
+    if (entry.deli_sales > 0 && (wasteRate >= 5 || grossMargin < 45)) {
+      findings.push({
+        id: `deli-${entry.date}`,
+        type: "deli_waste",
+        severity: wasteRate >= 8 || grossMargin < 35 ? "critical" : "warning",
+        title: `Deli waste is pressuring margin on ${entry.date}`,
+        description: `Waste was ${percent(wasteRate)} of deli sales and estimated deli gross margin was ${percent(grossMargin)}.`,
+        recommendation:
+          "Reduce the next prep batch, track waste by daypart, and move slow sellers into a timed promotion before discard.",
+        metric: `${currency(entry.waste_amount)} waste`,
+        date: entry.date,
+        impact: entry.waste_amount,
+      });
+    }
+  }
+
+  const totalInsideRevenue = totalInsideSales(sortedSales);
+  const payrollCost = totalPayroll(data.payroll_entries);
+  const payrollRatio = totalInsideRevenue > 0 ? (payrollCost / totalInsideRevenue) * 100 : 0;
+
+  if (payrollCost > 0 && payrollRatio >= 12) {
+    findings.push({
+      id: "payroll-ratio",
+      type: "payroll_ratio",
+      severity: payrollRatio >= 18 ? "critical" : "warning",
+      title: "Payroll is high compared to inside sales",
+      description: `Payroll is running at ${percent(payrollRatio)} of inside sales for the selected data set.`,
+      recommendation:
+        "Match labor hours to rush periods, trim overlapping shifts, and compare scheduled hours against expected inside sales before posting the next schedule.",
+      metric: `${percent(payrollRatio)} labor ratio`,
+      impact: payrollCost,
+    });
+  }
+
+  const expensesByVendor = sortedExpenses.reduce<Record<string, Expense[]>>((vendors, expense) => {
+    vendors[expense.vendor_name] = [...(vendors[expense.vendor_name] ?? []), expense];
+    return vendors;
+  }, {});
+
+  for (const [vendor, expenses] of Object.entries(expensesByVendor)) {
+    if (expenses.length < 2) {
+      continue;
+    }
+
+    const midpoint = Math.ceil(expenses.length / 2);
+    const previous = expenses.slice(0, midpoint);
+    const recent = expenses.slice(midpoint);
+    const previousSpend = totalExpenses(previous);
+    const recentSpend = totalExpenses(recent);
+    const increase = recentSpend - previousSpend;
+    const increaseRate = previousSpend > 0 ? (increase / previousSpend) * 100 : 0;
+
+    if (recentSpend > 0 && increase > 100 && (previousSpend === 0 || increaseRate >= 25)) {
+      findings.push({
+        id: `vendor-${vendor}`,
+        type: "vendor_increase",
+        severity: increaseRate >= 60 ? "critical" : "warning",
+        title: `${vendor} spending is increasing`,
+        description: `Recent spend is up ${currency(increase)} (${percent(increaseRate)}) compared with the prior entries.`,
+        recommendation:
+          "Pull the last two invoices, check quantity and unit-cost changes, and renegotiate or split the next order if the increase is not sales-driven.",
+        metric: `${currency(increase)} increase`,
+        impact: increase,
+      });
+    }
+  }
+
+  const dailyMargins = sortedSales.map((sale) => dayProfitMargin(data, sale)).filter((day) => day.revenue > 0);
+  const averageDailyMargin = average(dailyMargins.map((day) => day.margin));
+  const lowMarginDays = dailyMargins
+    .filter((day) => day.margin < 6 || (averageDailyMargin > 0 && day.margin < averageDailyMargin * 0.6))
+    .sort((a, b) => a.margin - b.margin)
+    .slice(0, 2);
+
+  for (const day of lowMarginDays) {
+    findings.push({
+      id: `margin-${day.date}`,
+      type: "low_profit_margin",
+      severity: day.margin < 0 ? "critical" : "warning",
+      title: `Low profit margin day on ${day.date}`,
+      description: `Estimated profit margin was ${percent(day.margin)} on ${currency(day.revenue)} in revenue.`,
+      recommendation:
+        "Review that day's expense postings, fuel margin, lottery payouts, and labor coverage to identify the largest controllable drag.",
+      metric: `${percent(day.margin)} margin`,
+      date: day.date,
+      impact: Math.abs(day.netProfit),
+    });
+  }
+
+  if (!findings.length && sortedSales.length) {
+    findings.push({
+      id: "healthy-operations",
+      type: "low_profit_margin",
+      severity: "watch",
+      title: "No major profit leaks detected",
+      description: "Current entries do not show outsized expenses, weak fuel margin, deli waste, labor drag, or low-margin days.",
+      recommendation:
+        "Keep entering daily sales, expenses, fuel, deli, and payroll data so the finder can spot trend changes early.",
+      metric: "Healthy",
+    });
+  }
+
+  const severityScore = {
+    critical: 0,
+    warning: 1,
+    watch: 2,
+  };
+
+  return findings.sort((a, b) => {
+    const severityDifference = severityScore[a.severity] - severityScore[b.severity];
+    if (severityDifference !== 0) {
+      return severityDifference;
+    }
+
+    return (b.impact ?? 0) - (a.impact ?? 0);
+  });
 }

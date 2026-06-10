@@ -14,9 +14,11 @@ import {
 } from "recharts";
 import {
   ArrowUpRight,
+  AlertTriangle,
   Beef,
   CalendarDays,
   CircleDollarSign,
+  Gauge,
   Fuel,
   ReceiptText,
   Sparkles,
@@ -25,12 +27,14 @@ import {
   TrendingUp,
   Users,
   WalletCards,
+  Zap,
 } from "lucide-react";
 import { LoadingState } from "@/components/loading-state";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import {
   aggregateData,
+  analyzeProfitLeaks,
   bestWorstCategories,
   currency,
   dailyChart,
@@ -38,8 +42,36 @@ import {
   todayIso,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
+import type { ProfitLeakFinding } from "@/lib/types";
 
 const chartColors = ["#06b6d4", "#10b981", "#f59e0b", "#f43f5e", "#6366f1", "#64748b"];
+
+const leakSeverityStyles = {
+  critical: {
+    card: "border-rose-200 bg-rose-50/80",
+    icon: "bg-rose-100 text-rose-700 ring-rose-200",
+    badge: "bg-rose-100 text-rose-700 ring-rose-200",
+  },
+  warning: {
+    card: "border-amber-200 bg-amber-50/80",
+    icon: "bg-amber-100 text-amber-700 ring-amber-200",
+    badge: "bg-amber-100 text-amber-700 ring-amber-200",
+  },
+  watch: {
+    card: "border-emerald-200 bg-emerald-50/80",
+    icon: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    badge: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+  },
+} satisfies Record<ProfitLeakFinding["severity"], { card: string; icon: string; badge: string }>;
+
+const leakTypeLabels = {
+  high_expense_category: "Expense spike",
+  low_fuel_margin: "Fuel margin",
+  deli_waste: "Deli waste",
+  payroll_ratio: "Payroll drag",
+  vendor_increase: "Vendor spend",
+  low_profit_margin: "Low margin",
+} satisfies Record<ProfitLeakFinding["type"], string>;
 
 export default function DashboardPage() {
   const { data, demoMode, loading, store } = useCommandCenter();
@@ -52,6 +84,7 @@ export default function DashboardPage() {
     value,
   }));
   const trend = dailyChart(data);
+  const profitLeaks = analyzeProfitLeaks(data).slice(0, 6);
 
   if (loading) {
     return <LoadingState />;
@@ -122,6 +155,65 @@ export default function DashboardPage() {
               <span className="text-sm font-black text-slate-950">{currency(Number(value))}</span>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="mb-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950 px-5 py-5 text-white sm:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-cyan-300/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.18em] text-cyan-100 ring-1 ring-cyan-200/15">
+                <Zap className="h-3.5 w-3.5" />
+                Profit Leak Finder
+              </div>
+              <h3 className="text-2xl font-black tracking-tight">Plain-English alerts for margin leaks</h3>
+              <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-300">
+                Automatically scans expenses, fuel margin, deli waste, payroll, vendor spend, and daily profit margin to show where money may be slipping away.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
+              <Gauge className="h-5 w-5 text-cyan-200" />
+              <div>
+                <p className="text-xs font-semibold text-slate-400">Findings</p>
+                <p className="text-lg font-black">{profitLeaks.length}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-5 sm:p-6 xl:grid-cols-2">
+          {profitLeaks.map((finding) => {
+            const styles = leakSeverityStyles[finding.severity];
+
+            return (
+              <article className={`rounded-3xl border p-4 ${styles.card}`} key={finding.id}>
+                <div className="flex gap-4">
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ${styles.icon}`}>
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] ring-1 ${styles.badge}`}>
+                        {finding.severity}
+                      </span>
+                      <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-slate-600 ring-1 ring-slate-200">
+                        {leakTypeLabels[finding.type]}
+                      </span>
+                      <span className="rounded-full bg-slate-950 px-2.5 py-1 text-[11px] font-black text-white">
+                        {finding.metric}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-black text-slate-950">{finding.title}</h4>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">{finding.description}</p>
+                    <div className="mt-3 rounded-2xl bg-white/80 p-3 text-sm leading-6 text-slate-700 ring-1 ring-white">
+                      <span className="font-black text-slate-950">Recommendation: </span>
+                      {finding.recommendation}
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
