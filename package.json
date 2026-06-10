@@ -3,11 +3,18 @@
   "version": "1.0.0",
   "description": "A Next.js command center for convenience store sales, expenses, fuel, lottery, deli, payroll, and profit tracking.",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "npm run lint",
+    "seed": "tsx scripts/seed.ts",
+    "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
+    "desktop:prepare": "node scripts/prepare-electron-next.mjs",
+    "desktop:pack": "npm run build && npm run desktop:prepare && electron-builder --dir",
+    "desktop:dist": "npm run build && npm run desktop:prepare && electron-builder --win nsis"
   },
   "repository": {
     "type": "git",
@@ -36,12 +43,60 @@
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.7",
     "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3"
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "wait-on": "^9.0.10"
   },
   "overrides": {
     "postcss": "^8.5.15"
+  },
+  "build": {
+    "appId": "com.storecommandcenter.desktop",
+    "productName": "StoreCommandCenter",
+    "artifactName": "StoreCommandCenter-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "build/icon.ico",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      ".next/standalone/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "StoreCommandCenter"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StoreCommandCenter",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
   }
 }

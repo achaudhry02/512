@@ -6,7 +6,8 @@ node_modules
 out
 
 # production
-build
+dist
+dist-desktop
 
 # env
 .env

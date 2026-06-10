@@ -10,6 +10,12 @@ const eslintConfig = [
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    files: ["electron/**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;
