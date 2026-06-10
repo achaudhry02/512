@@ -69,7 +69,7 @@ export default function ReportsPage() {
         description="Create a monthly profit and loss report with revenue, inside sales, fuel profit, lottery profit, deli sales, expenses by category, payroll, net profit, and profit margin."
         actions={
           <button
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-slate-800"
             onClick={exportCsv}
             type="button"
           >
@@ -79,16 +79,16 @@ export default function ReportsPage() {
         }
       />
 
-      <div className="mb-6 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
-        <div className="text-sm font-bold text-slate-700">Report range</div>
+      <div className="mb-6 flex flex-col gap-3 rounded-[1.75rem] border border-white/80 bg-white/85 p-4 shadow-card backdrop-blur-xl sm:flex-row sm:items-center">
+        <div className="text-sm font-black text-slate-800">Report range</div>
         <input
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
           onChange={(event) => setStartDate(event.target.value)}
           type="date"
           value={startDate}
         />
         <input
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
           onChange={(event) => setEndDate(event.target.value)}
           type="date"
           value={endDate}
@@ -103,37 +103,41 @@ export default function ReportsPage() {
         <StatCard label="Deli sales" value={report.deliSales} accent="emerald" />
         <StatCard label="Payroll" value={report.payrollCost} accent="rose" />
         <StatCard label="Net profit" value={report.netProfit} accent={report.netProfit >= 0 ? "emerald" : "rose"} />
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">Profit margin</p>
-          <p className="mt-3 text-2xl font-black tracking-tight text-slate-950">
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>
+          <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">
             {percent(report.profitMargin)}
           </p>
           <p className="mt-4 text-xs font-medium text-slate-500">Net profit divided by total revenue</p>
         </div>
       </div>
 
-      <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-black text-slate-950">Expenses by category</h3>
+      <section className="mt-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5">
+          <h3 className="text-xl font-black text-slate-950">Expenses by category</h3>
+          <p className="mt-1 text-sm font-medium text-slate-500">A clean category breakdown for month-end owner review.</p>
+        </div>
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
               <tr>
-                <th className="px-4 py-3 font-black">Category</th>
-                <th className="px-4 py-3 text-right font-black">Amount</th>
+                <th className="px-5 py-4 font-black">Category</th>
+                <th className="px-5 py-4 text-right font-black">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {expenseCategories.map((category) => (
-                <tr key={category}>
-                  <td className="px-4 py-3 font-semibold text-slate-700">{category}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">
+                <tr className="transition hover:bg-cyan-50/40" key={category}>
+                  <td className="px-5 py-4 font-semibold text-slate-700">{category}</td>
+                  <td className="px-5 py-4 text-right font-bold text-slate-700">
                     {currency(expenseMap[category] ?? 0)}
                   </td>
                 </tr>
               ))}
               <tr className="bg-slate-50">
-                <td className="px-4 py-3 font-black text-slate-950">Total expenses</td>
-                <td className="px-4 py-3 text-right font-black text-slate-950">
+                <td className="px-5 py-4 font-black text-slate-950">Total expenses</td>
+                <td className="px-5 py-4 text-right font-black text-slate-950">
                   {currency(report.totalExpenses)}
                 </td>
               </tr>

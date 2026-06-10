@@ -63,24 +63,27 @@ export default function SettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.7fr]">
         <form
-          className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+          className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card"
           onSubmit={handleSubmit}
         >
-          <h3 className="text-lg font-black text-slate-950">Profile</h3>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
+            <h3 className="text-xl font-black text-slate-950">Profile</h3>
+            <p className="mt-1 text-sm font-medium text-slate-500">Owner identity and store information for the workspace.</p>
+          </div>
+          <div className="grid gap-4 p-5 md:grid-cols-2 sm:p-6">
             <label className="block">
-              <span className="text-sm font-bold text-slate-700">Full name</span>
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Full name</span>
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
                 onChange={(event) => setFullName(event.target.value)}
                 type="text"
                 value={fullName}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-bold text-slate-700">Email</span>
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Email</span>
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-500"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-500"
                 disabled
                 type="email"
                 value={profile?.email ?? ""}
@@ -88,8 +91,10 @@ export default function SettingsPage() {
             </label>
           </div>
 
-          <h3 className="mt-8 text-lg font-black text-slate-950">Store</h3>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="border-t border-slate-100 px-5 pt-5 sm:px-6">
+            <h3 className="text-xl font-black text-slate-950">Store</h3>
+          </div>
+          <div className="grid gap-4 p-5 md:grid-cols-2 sm:p-6">
             {[
               ["name", "Store name"],
               ["address", "Address"],
@@ -98,9 +103,9 @@ export default function SettingsPage() {
               ["zip", "ZIP"],
             ].map(([key, label]) => (
               <label className={key === "address" ? "block md:col-span-2" : "block"} key={key}>
-                <span className="text-sm font-bold text-slate-700">{label}</span>
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{label}</span>
                 <input
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
                   onChange={(event) =>
                     setStoreForm((current) => ({
                       ...current,
@@ -114,23 +119,25 @@ export default function SettingsPage() {
             ))}
           </div>
 
-          {message ? <p className="mt-5 text-sm font-semibold text-emerald-700">{message}</p> : null}
-          {error ? <p className="mt-5 text-sm font-semibold text-red-600">{error}</p> : null}
+          <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-5 sm:px-6">
+            {message ? <p className="mb-4 text-sm font-semibold text-emerald-700">{message}</p> : null}
+            {error ? <p className="mb-4 text-sm font-semibold text-red-600">{error}</p> : null}
 
-          <button
-            className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={saving}
-            type="submit"
-          >
-            <Save className="h-4 w-4" />
-            {saving ? "Saving..." : "Save settings"}
-          </button>
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-cyan-600/20 transition hover:-translate-y-0.5 hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              <Save className="h-4 w-4" />
+              {saving ? "Saving..." : "Save settings"}
+            </button>
+          </div>
         </form>
 
-        <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-lg font-black text-slate-950">Production readiness</h3>
+        <aside className="rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Production readiness</h3>
           <div className="mt-5 space-y-3 text-sm text-slate-600">
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
               <p className="font-bold text-slate-950">Authentication</p>
               <p className="mt-1">
                 {demoMode
@@ -138,13 +145,13 @@ export default function SettingsPage() {
                   : "Supabase authentication is active."}
               </p>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
               <p className="font-bold text-slate-950">Data isolation</p>
               <p className="mt-1">
                 The SQL schema includes row-level security policies so each user only sees their own store data.
               </p>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
               <p className="font-bold text-slate-950">Backups</p>
               <p className="mt-1">
                 Configure Supabase backups and invite only trusted store owners in production.

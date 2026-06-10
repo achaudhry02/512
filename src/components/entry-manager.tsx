@@ -129,21 +129,25 @@ export function EntryManager<T extends TableName>({
 
   return (
     <div>
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-8 flex flex-col gap-5 rounded-[2rem] border border-white/80 bg-white/75 p-6 shadow-card backdrop-blur-xl sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-cyan-700">
+          <p className="mb-3 inline-flex rounded-full bg-cyan-50 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-cyan-700 ring-1 ring-cyan-100">
             Store operations
           </p>
-          <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+          <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-5xl">
             {title}
           </h2>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
+          <p className="mt-4 max-w-3xl text-sm font-medium leading-6 text-slate-600 sm:text-base">
             {description}
           </p>
-          {helper ? <p className="mt-2 text-sm font-semibold text-cyan-800">{helper}</p> : null}
+          {helper ? (
+            <p className="mt-3 inline-flex rounded-full bg-slate-950 px-3 py-1.5 text-xs font-bold text-white">
+              {helper}
+            </p>
+          ) : null}
         </div>
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-slate-800"
           onClick={() => {
             resetForm();
             setFormOpen((current) => !current);
@@ -156,17 +160,17 @@ export function EntryManager<T extends TableName>({
       </div>
 
       {actionError ? (
-        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="mb-6 rounded-3xl border border-red-200 bg-red-50/90 p-4 text-sm font-semibold text-red-700 shadow-sm">
           {actionError}
         </div>
       ) : null}
 
       {formOpen ? (
         <form
-          className="mb-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+          className="mb-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card"
           onSubmit={handleSubmit}
         >
-          <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
             <div>
               <h3 className="text-lg font-black text-slate-950">
                 {editingId ? "Edit entry" : "Add new entry"}
@@ -187,13 +191,13 @@ export function EntryManager<T extends TableName>({
             ) : null}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 p-5 md:grid-cols-2 sm:p-6 xl:grid-cols-3">
             {fields.map((field) => (
               <label className={cn("block", field.className)} key={field.name}>
-                <span className="text-sm font-bold text-slate-700">{field.label}</span>
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{field.label}</span>
                 {field.type === "textarea" ? (
                   <textarea
-                    className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                    className="mt-2 min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
                     onChange={(event) =>
                       setFormValues((current) => ({
                         ...current,
@@ -205,7 +209,7 @@ export function EntryManager<T extends TableName>({
                   />
                 ) : field.type === "select" ? (
                   <select
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
                     onChange={(event) =>
                       setFormValues((current) => ({
                         ...current,
@@ -223,7 +227,7 @@ export function EntryManager<T extends TableName>({
                   </select>
                 ) : (
                   <input
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
                     min={field.min}
                     onChange={(event) =>
                       setFormValues((current) => ({
@@ -242,9 +246,9 @@ export function EntryManager<T extends TableName>({
             ))}
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-5 sm:px-6">
             <button
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-cyan-600/20 transition hover:-translate-y-0.5 hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={submitting}
               type="submit"
             >
@@ -252,7 +256,7 @@ export function EntryManager<T extends TableName>({
               {submitting ? "Saving..." : editingId ? "Save changes" : "Add entry"}
             </button>
             <button
-              className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100"
+              className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-100"
               onClick={resetForm}
               type="button"
             >
@@ -262,22 +266,22 @@ export function EntryManager<T extends TableName>({
         </form>
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
-        <div className="text-sm font-bold text-slate-700">Filter by date range</div>
+      <div className="mb-4 flex flex-col gap-3 rounded-[1.75rem] border border-white/80 bg-white/85 p-4 shadow-card backdrop-blur-xl sm:flex-row sm:items-center">
+        <div className="text-sm font-black text-slate-800">Filter by date range</div>
         <input
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
           onChange={(event) => setStartDate(event.target.value)}
           type="date"
           value={startDate}
         />
         <input
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm font-semibold outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
           onChange={(event) => setEndDate(event.target.value)}
           type="date"
           value={endDate}
         />
         <button
-          className="rounded-2xl px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"
+          className="rounded-2xl px-4 py-2.5 text-sm font-black text-slate-600 transition hover:bg-slate-100"
           onClick={() => {
             setStartDate("");
             setEndDate("");
@@ -288,38 +292,38 @@ export function EntryManager<T extends TableName>({
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+          <table className="min-w-full divide-y divide-slate-100 text-sm">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
               <tr>
                 {columns.map((column) => (
-                  <th className={cn("px-4 py-3 font-black", column.className)} key={column.header}>
+                  <th className={cn("px-5 py-4 font-black", column.className)} key={column.header}>
                     {column.header}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right font-black">Actions</th>
+                <th className="px-5 py-4 text-right font-black">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={columns.length + 1}>
+                  <td className="px-5 py-10 text-center font-semibold text-slate-500" colSpan={columns.length + 1}>
                     Loading entries...
                   </td>
                 </tr>
               ) : filteredRows.length ? (
                 filteredRows.map((row) => (
-                  <tr className="hover:bg-slate-50" key={row.id}>
+                  <tr className="transition hover:bg-cyan-50/40" key={row.id}>
                     {columns.map((column) => (
-                      <td className={cn("px-4 py-3 text-slate-700", column.className)} key={column.header}>
+                      <td className={cn("px-5 py-4 font-semibold text-slate-700", column.className)} key={column.header}>
                         {column.cell(row)}
                       </td>
                     ))}
-                    <td className="px-4 py-3">
+                    <td className="px-5 py-4">
                       <div className="flex justify-end gap-2">
                         <button
-                          className="rounded-xl p-2 text-slate-500 transition hover:bg-cyan-50 hover:text-cyan-700"
+                          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-700"
                           onClick={() => editRow(row)}
                           type="button"
                           aria-label="Edit entry"
@@ -327,7 +331,7 @@ export function EntryManager<T extends TableName>({
                           <Edit3 className="h-4 w-4" />
                         </button>
                         <button
-                          className="rounded-xl p-2 text-slate-500 transition hover:bg-red-50 hover:text-red-700"
+                          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                           onClick={() => void handleDelete(row.id)}
                           type="button"
                           aria-label="Delete entry"
@@ -340,7 +344,7 @@ export function EntryManager<T extends TableName>({
                 ))
               ) : (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={columns.length + 1}>
+                  <td className="px-5 py-12 text-center font-semibold text-slate-500" colSpan={columns.length + 1}>
                     No entries found. Add your first entry for {todayIso()}.
                   </td>
                 </tr>
