@@ -2,10 +2,12 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
+  {
+    ignores: [".next/**", "dist/**", "dist-desktop/**", "node_modules/**"],
+  },
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**"],
     rules: {
       "react-hooks/set-state-in-effect": "off",
     },
