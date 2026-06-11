@@ -10,10 +10,10 @@ The full **Convenience Store Command Center** app lives on branch `cursor/conven
 
 | Service | Required? | Notes |
 |---|---|---|
-| Next.js dev server (`npm run dev`) | Yes | Single service for local/demo development |
-| Supabase (hosted) | Only for full auth + persistence | Not required for demo mode |
+| Next.js dev server (`npm run dev`) | Yes | Local web server |
+| Supabase (hosted) | Yes | Required for auth, reads, and writes |
 
-There is no Docker, Makefile, or custom API server. The browser talks directly to Supabase when env vars are set.
+The browser talks directly to Supabase for authenticated reads and writes. Smart Import also uses a Next.js API route for file parsing.
 
 ### Standard commands
 
@@ -24,18 +24,16 @@ See `README.md` and `package.json` scripts:
 - `npm run build` / `npm run start` — production build and server
 - No automated test script is defined in `package.json`
 
-### Demo mode vs Supabase mode
+### Supabase configuration
 
-Without `.env.local`, the app runs in **demo mode** with editable in-memory sample data (changes do not persist across refresh). This is sufficient for most UI and calculation verification.
-
-For full-stack E2E (auth + persistence), create `.env.local` with:
+Create `.env.local` with:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
-Then run `supabase/schema.sql` in the Supabase SQL editor (see `README.md`).
+Without these variables, the app shows a configuration error and will not load fallback data. Run `supabase/schema.sql` in the Supabase SQL editor before using the live app (see `README.md`).
 
 ### Dev server
 

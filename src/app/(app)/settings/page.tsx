@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { useCommandCenter } from "@/lib/data-provider";
 
 export default function SettingsPage() {
-  const { demoMode, profile, store, updateProfile, updateStore } = useCommandCenter();
+  const { profile, store, updateProfile, updateStore } = useCommandCenter();
   const [fullName, setFullName] = useState("");
   const [storeForm, setStoreForm] = useState({
     name: "",
@@ -140,9 +140,7 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
               <p className="font-bold text-slate-950">Authentication</p>
               <p className="mt-1">
-                {demoMode
-                  ? "Demo mode is active. Add Supabase keys to enable real auth."
-                  : "Supabase authentication is active."}
+                Supabase authentication is active when environment variables are configured and the user is signed in.
               </p>
             </div>
             <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">

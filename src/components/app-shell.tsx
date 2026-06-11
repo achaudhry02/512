@@ -44,14 +44,14 @@ const navItems = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { demoMode, error, loading, profile, store, user } = useCommandCenter();
+  const { error, loading, profile, store, user } = useCommandCenter();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !demoMode && !user) {
+    if (!loading && !user) {
       router.replace("/login");
     }
-  }, [demoMode, loading, router, user]);
+  }, [loading, router, user]);
 
   async function handleSignOut() {
     const supabase = getSupabaseBrowserClient();
@@ -59,7 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.replace("/login");
   }
 
-  if (!loading && !demoMode && !user) {
+  if (!loading && !user) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
@@ -123,9 +123,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Store className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-white">{store?.name ?? "Demo store"}</p>
+              <p className="truncate text-sm font-bold text-white">{store?.name ?? "Store"}</p>
               <p className="mt-0.5 text-xs text-slate-400">
-                {demoMode ? "Demo workspace" : "Live Supabase workspace"}
+                Live Supabase workspace
               </p>
             </div>
             <ChevronDown className="h-4 w-4 text-slate-500" />
@@ -170,7 +170,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <p className="truncate text-sm font-bold">{profile?.full_name || profile?.email || "Demo owner"}</p>
           <p className="mt-1 truncate text-xs text-slate-400">
-            {demoMode ? "Demo mode · connect Supabase to persist" : profile?.email}
+            {profile?.email}
           </p>
           <button
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-3 py-2.5 text-sm font-bold text-white transition hover:bg-white/10"
@@ -178,7 +178,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
           >
             <LogOut className="h-4 w-4" />
-            {demoMode ? "Back to login" : "Sign out"}
+            Sign out
           </button>
         </div>
       </aside>
@@ -224,7 +224,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <div className="flex items-center gap-3">
               <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
-                {demoMode ? "Demo data" : "Live data"}
+                Live data
               </span>
               <button
                 aria-label="View notifications"

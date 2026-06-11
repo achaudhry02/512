@@ -10,8 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import { sampleData, sampleProfile, sampleStore } from "@/lib/sample-data";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
   CommandCenterData,
@@ -76,7 +75,6 @@ type CommandCenterContextValue = {
   data: CommandCenterData;
   loading: boolean;
   error: string | null;
-  demoMode: boolean;
   refresh: () => Promise<void>;
   saveEntry: <T extends TableName>(
     table: T,
@@ -90,14 +88,6 @@ type CommandCenterContextValue = {
 };
 
 const CommandCenterContext = createContext<CommandCenterContextValue | undefined>(undefined);
-
-function cloneSampleData(): CommandCenterData {
-  return JSON.parse(JSON.stringify(sampleData)) as CommandCenterData;
-}
-
-function demoId(prefix: string) {
-  return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString()}`;
-}
 
 function normalizedVendor(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || "unknown vendor";
@@ -186,24 +176,25 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<CommandCenterData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const demoMode = !isSupabaseConfigured;
-
-  const loadDemo = useCallback(() => {
-    setUser(null);
-    setProfile(sampleProfile);
-    setStore(sampleStore);
-    setData(cloneSampleData());
-    setError(null);
-    setLoading(false);
-  }, []);
 
   const loadSupabaseData = useCallback(async (activeUser: User | null) => {
     const supabase = getSupabaseBrowserClient();
-    if (!supabase || !activeUser) {
+    if (!supabase) {
+      setUser(null);
+      setProfile(null);
+      setStore(null);
+      setData(emptyData);
+      setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setLoading(false);
+      return;
+    }
+
+    if (!activeUser) {
       setUser(activeUser);
       setProfile(null);
       setStore(null);
       setData(emptyData);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -331,25 +322,26 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (demoMode) {
-      loadDemo();
-      return;
-    }
-
-    const supabase = getSupabaseBrowserClient();
-    const { data: sessionData } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
-    await loadSupabaseData(sessionData.session?.user ?? null);
-  }, [demoMode, loadDemo, loadSupabaseData]);
-
-  useEffect(() => {
-    if (demoMode) {
-      loadDemo();
-      return;
-    }
-
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
-      loadDemo();
+      setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: sessionData } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
+    await loadSupabaseData(sessionData.session?.user ?? null);
+  }, [loadSupabaseData]);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setUser(null);
+      setProfile(null);
+      setStore(null);
+      setData(emptyData);
+      setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setLoading(false);
       return;
     }
 
@@ -369,33 +361,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [demoMode, loadDemo, loadSupabaseData]);
+  }, [loadSupabaseData]);
 
   const saveEntry = useCallback(
     async <T extends TableName>(table: T, payload: EntryPayload<T>, id?: string) => {
-      if (demoMode) {
-        setData((current) => {
-          const rows = current[table] as TableRowMap[T][];
-          const existing = rows.find((row) => row.id === id);
-          const nextRow = {
-            ...(existing ?? {
-              id: demoId(table),
-              user_id: sampleProfile.id,
-              store_id: sampleStore.id,
-            }),
-            ...payload,
-          } as TableRowMap[T];
-
-          return {
-            ...current,
-            [table]: existing
-              ? rows.map((row) => (row.id === id ? nextRow : row))
-              : [nextRow, ...rows],
-          };
-        });
-        return;
-      }
-
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before saving entries.");
@@ -420,19 +389,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [demoMode, refresh, store, user],
+    [refresh, store, user],
   );
 
   const deleteEntry = useCallback(
     async <T extends TableName>(table: T, id: string) => {
-      if (demoMode) {
-        setData((current) => ({
-          ...current,
-          [table]: current[table].filter((row) => row.id !== id),
-        }));
-        return;
-      }
-
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in before deleting entries.");
@@ -451,7 +412,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [demoMode, refresh, user],
+    [refresh, user],
   );
 
   const saveSmartImport = useCallback(
@@ -462,292 +423,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       if (data.imports.some((record) => record.file_hash === parsedImport.fileHash)) {
         throw new Error("This file has already been imported. Smart Import prevented a duplicate file import.");
-      }
-
-      if (demoMode) {
-        const existingRowHashes = new Set(data.import_rows.map((row) => row.row_hash));
-        const importId = demoId("imports");
-        const userId = sampleProfile.id;
-        const storeId = sampleStore.id;
-        const importRecord: ImportRecord = {
-          id: importId,
-          ...importRecordPayload(parsedImport, acceptedRows.length, userId, storeId),
-        };
-        const importRows = rows
-          .filter((row) => !existingRowHashes.has(row.rowHash))
-          .map<ImportRow>((row) => ({
-            id: demoId("import_rows"),
-            ...importRowPayload(row, importId, userId, storeId),
-          }));
-        const importRowIdByHash = new Map(importRows.map((row) => [row.row_hash, row.id]));
-
-        setData((current) => {
-          const vendors = [...current.vendors];
-          const categories = [...current.product_categories];
-          const products = [...current.products];
-          const productSales = [...current.product_sales];
-          const expenses = [...current.expenses];
-          const fuelEntries = [...current.fuel_entries];
-          const lotteryEntries = [...current.lottery_entries];
-          const deliEntries = [...current.deli_entries];
-          const payrollEntries = [...current.payroll_entries];
-          const categoryRules = [...current.category_rules];
-          const vendorRules = [...current.vendor_rules];
-          const productRules = [...current.product_rules];
-
-          function ensureVendor(name: string, category: ParsedImportRow["suggestedCategory"]) {
-            const normalized = normalizedVendor(name);
-            let vendor = vendors.find((entry) => entry.normalized_name === normalized);
-            if (!vendor) {
-              vendor = {
-                id: demoId("vendors"),
-                user_id: userId,
-                store_id: storeId,
-                name: name || "Unknown vendor",
-                normalized_name: normalized,
-                category,
-                total_spend: 0,
-              };
-              vendors.push(vendor);
-            }
-            return vendor;
-          }
-
-          function ensureCategory(name: ParsedImportRow["suggestedCategory"]) {
-            let category = categories.find((entry) => entry.name === name);
-            if (!category) {
-              category = {
-                id: demoId("product_categories"),
-                user_id: userId,
-                store_id: storeId,
-                name,
-                parent_category: null,
-              };
-              categories.push(category);
-            }
-            return category;
-          }
-
-          function ensureProduct(row: ParsedImportRow, vendorId: string, categoryId: string) {
-            const productName = row.productName || row.description || "Imported product";
-            let product = products.find(
-              (entry) =>
-                (row.skuUpc && entry.sku_upc === row.skuUpc) ||
-                entry.name.toLowerCase() === productName.toLowerCase(),
-            );
-            if (!product) {
-              product = {
-                id: demoId("products"),
-                user_id: userId,
-                store_id: storeId,
-                product_category_id: categoryId,
-                vendor_id: vendorId,
-                name: productName,
-                sku_upc: row.skuUpc || null,
-                category: row.suggestedCategory,
-                unit_cost: row.unitCost,
-                unit_retail_price: row.unitRetailPrice,
-              };
-              products.push(product);
-            }
-            return product;
-          }
-
-          function rememberCorrection(row: ParsedImportRow) {
-            if (!correctedRows([row]).length) {
-              return;
-            }
-
-            if (row.vendor) {
-              const normalized = normalizedRuleKey(row.vendor);
-              const existing = vendorRules.find((rule) => rule.normalized_vendor === normalized);
-              if (existing) {
-                existing.category = row.suggestedCategory;
-                existing.import_destination = row.importDestination;
-                existing.usage_count += 1;
-              } else {
-                vendorRules.push({
-                  id: demoId("vendor_rules"),
-                  user_id: userId,
-                  store_id: storeId,
-                  vendor_name: row.vendor,
-                  normalized_vendor: normalized,
-                  category: row.suggestedCategory,
-                  import_destination: row.importDestination,
-                  confidence_score: 95,
-                  usage_count: 1,
-                });
-              }
-            }
-
-            if (row.productName || row.skuUpc) {
-              const normalized = normalizedRuleKey(row.productName || row.skuUpc);
-              const existing = productRules.find(
-                (rule) =>
-                  (row.skuUpc && rule.sku_upc === row.skuUpc) ||
-                  rule.normalized_product === normalized,
-              );
-              if (existing) {
-                existing.category = row.suggestedCategory;
-                existing.import_destination = row.importDestination;
-                existing.usage_count += 1;
-              } else {
-                productRules.push({
-                  id: demoId("product_rules"),
-                  user_id: userId,
-                  store_id: storeId,
-                  product_name: row.productName || row.description || "Imported product",
-                  sku_upc: row.skuUpc || null,
-                  normalized_product: normalized,
-                  category: row.suggestedCategory,
-                  import_destination: row.importDestination,
-                  confidence_score: 95,
-                  usage_count: 1,
-                });
-              }
-            }
-
-            const keyword = learnedKeyword(row);
-            if (keyword) {
-              const normalized = normalizedRuleKey(keyword);
-              const existing = categoryRules.find((rule) => rule.normalized_keyword === normalized);
-              if (existing) {
-                existing.category = row.suggestedCategory;
-                existing.import_destination = row.importDestination;
-                existing.usage_count += 1;
-              } else {
-                categoryRules.push({
-                  id: demoId("category_rules"),
-                  user_id: userId,
-                  store_id: storeId,
-                  keyword,
-                  normalized_keyword: normalized,
-                  category: row.suggestedCategory,
-                  import_destination: row.importDestination,
-                  confidence_score: 95,
-                  usage_count: 1,
-                });
-              }
-            }
-          }
-
-          for (const row of acceptedRows) {
-            if (!importRowIdByHash.has(row.rowHash)) {
-              continue;
-            }
-
-            const amount = rowAmount(row);
-            const date = rowDate(row);
-
-            if (row.importDestination === "expenses") {
-              expenses.unshift({
-                id: demoId("expenses"),
-                user_id: userId,
-                store_id: storeId,
-                date,
-                vendor_name: row.vendor || "Imported vendor",
-                category: row.suggestedCategory,
-                amount,
-                payment_method: "Other",
-                notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-              });
-            } else if (row.importDestination === "fuel_entries") {
-              fuelEntries.unshift({
-                id: demoId("fuel_entries"),
-                user_id: userId,
-                store_id: storeId,
-                date,
-                gallons_sold: row.quantity,
-                cost_per_gallon: row.unitCost,
-                retail_price_per_gallon: row.unitRetailPrice,
-                notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-              });
-            } else if (row.importDestination === "lottery_entries") {
-              lotteryEntries.unshift({
-                id: demoId("lottery_entries"),
-                user_id: userId,
-                store_id: storeId,
-                date,
-                lottery_sales: amount,
-                lottery_payouts: 0,
-                commission_percentage: 6,
-                notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-              });
-            } else if (row.importDestination === "deli_entries") {
-              deliEntries.unshift({
-                id: demoId("deli_entries"),
-                user_id: userId,
-                store_id: storeId,
-                date,
-                deli_sales: amount,
-                food_cost: row.quantity * row.unitCost,
-                waste_amount: 0,
-                notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-              });
-            } else if (row.importDestination === "payroll_entries") {
-              payrollEntries.unshift({
-                id: demoId("payroll_entries"),
-                user_id: userId,
-                store_id: storeId,
-                employee_name: row.description || row.vendor || "Imported payroll",
-                date_range_start: date,
-                date_range_end: date,
-                hours_worked: row.quantity,
-                hourly_rate: row.unitCost || row.unitRetailPrice,
-                notes: `Imported from ${parsedImport.fileName}`,
-              });
-            } else if (row.importDestination === "product_sales") {
-              const vendor = ensureVendor(row.vendor, row.suggestedCategory);
-              const category = ensureCategory(row.suggestedCategory);
-              const product = ensureProduct(row, vendor.id, category.id);
-              const grossSales = rowGrossSales(row);
-              const grossProfit = rowGrossProfit(row);
-              vendor.total_spend += row.quantity * row.unitCost;
-              productSales.unshift({
-                id: demoId("product_sales"),
-                user_id: userId,
-                store_id: storeId,
-                import_id: importId,
-                import_row_id: importRowIdByHash.get(row.rowHash) ?? null,
-                product_id: product.id,
-                vendor_id: vendor.id,
-                date,
-                product_name: product.name,
-                sku_upc: row.skuUpc || null,
-                quantity_sold: row.quantity,
-                unit_cost: row.unitCost,
-                unit_retail_price: row.unitRetailPrice,
-                gross_sales: grossSales,
-                gross_profit: grossProfit,
-                margin_percent: rowMarginPercent(row),
-                category: row.suggestedCategory,
-                vendor: vendor.name,
-              });
-            }
-
-            rememberCorrection(row);
-          }
-
-          return {
-            ...current,
-            imports: [importRecord, ...current.imports],
-            import_rows: [...importRows, ...current.import_rows],
-            vendors,
-            product_categories: categories,
-            products,
-            product_sales: productSales,
-            expenses,
-            fuel_entries: fuelEntries,
-            lottery_entries: lotteryEntries,
-            deli_entries: deliEntries,
-            payroll_entries: payrollEntries,
-            category_rules: categoryRules,
-            vendor_rules: vendorRules,
-            product_rules: productRules,
-          };
-        });
-
-        return;
       }
 
       const supabase = getSupabaseBrowserClient();
@@ -1029,16 +704,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await saveLearnedCorrections();
       await refresh();
     },
-    [data.import_rows, data.imports, demoMode, refresh, store, user],
+    [data.import_rows, data.imports, refresh, store, user],
   );
 
   const updateProfile = useCallback(
     async (payload: Partial<Pick<UserProfile, "full_name">>) => {
-      if (demoMode) {
-        setProfile((current) => ({ ...(current ?? sampleProfile), ...payload }));
-        return;
-      }
-
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in to update your profile.");
@@ -1056,16 +726,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [demoMode, refresh, user],
+    [refresh, user],
   );
 
   const updateStore = useCallback(
     async (payload: Partial<Omit<Store, "id" | "user_id">>) => {
-      if (demoMode) {
-        setStore((current) => ({ ...(current ?? sampleStore), ...payload }));
-        return;
-      }
-
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in to update store settings.");
@@ -1084,7 +749,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [demoMode, refresh, store, user],
+    [refresh, store, user],
   );
 
   const value = useMemo<CommandCenterContextValue>(
@@ -1095,7 +760,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       data,
       loading,
       error,
-      demoMode,
       refresh,
       saveEntry,
       deleteEntry,
@@ -1106,7 +770,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [
       data,
       deleteEntry,
-      demoMode,
       error,
       loading,
       profile,

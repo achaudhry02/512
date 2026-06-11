@@ -26,7 +26,7 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Monthly P&L report with CSV export
 - Mobile-friendly sidebar navigation
 - Loading states and error handling
-- Editable demo/sample mode when Supabase environment variables are not set
+- Live Supabase-backed data on every dashboard, report, import, and settings page
 - Profit Leak Finder alerts for high expenses, low fuel margin, deli waste, payroll drag, vendor increases, and low-margin days
 - Smart Import for PDF, Excel, and CSV files with editable review before saving
 - Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
@@ -57,7 +57,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 `SUPABASE_SERVICE_ROLE_KEY` is only needed for server-side maintenance scripts such as `npm run seed`. Never expose it in client-side code or public hosting logs.
 
-If Supabase values are missing, the app runs in editable demo mode. Demo mode is useful for offline previews and the Electron desktop app when no cloud database is configured.
+Supabase values are required. If they are missing, the app shows a configuration error and does not load fallback data.
 
 ## Local Development
 
@@ -129,7 +129,7 @@ You can also seed from the command line:
 SEED_USER_ID=your-auth-user-id npm run seed
 ```
 
-The script creates sample:
+The script creates seeded:
 
 - Sales
 - Expenses
@@ -232,7 +232,7 @@ PDF parsing uses server-side `pdf-parse`. CSV parsing uses PapaParse. Excel pars
 
 ### Sample upload files
 
-Use the files in `samples/uploads/` to test Smart Import:
+Use the upload fixtures in `samples/uploads/` to test Smart Import:
 
 - `capital-candy-invoice.csv`
 - `pos-sales-report.csv`
@@ -324,7 +324,7 @@ Electron details:
 - One-click installer: enabled
 - Desktop and Start Menu shortcuts: enabled
 - Local backend auto-launch: enabled from `.next/standalone/server.js`
-- Offline mode: supported via app demo mode when Supabase env vars are not configured
+- Offline mode: the desktop shell can launch locally, but authentication and persisted business data require the configured Supabase project
 
 ## Production Checks
 

@@ -23,7 +23,7 @@ export default function LoginPage() {
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
-      setError("Supabase is not configured. Add environment variables or continue in demo mode.");
+      setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
       setLoading(false);
       return;
     }
@@ -77,8 +77,9 @@ export default function LoginPage() {
 
           {!isSupabaseConfigured ? (
             <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50/90 p-4 text-sm font-semibold text-amber-900 shadow-sm">
-              Supabase environment variables are not configured. You can still
-              preview the app with editable sample data.
+              Supabase environment variables are not configured. Set
+              NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in
+              .env.local to enable authentication and live data.
             </div>
           ) : null}
 
@@ -154,13 +155,6 @@ export default function LoginPage() {
               <ArrowRight className="h-4 w-4" />
             </button>
 
-            <button
-              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-              onClick={() => router.push("/dashboard")}
-              type="button"
-            >
-              Continue with demo data
-            </button>
           </form>
         </div>
       </section>

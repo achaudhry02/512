@@ -42,7 +42,7 @@ function isoDate(daysAgo: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function sampleExpenseCategory(index: number): ExpenseCategory {
+function seededExpenseCategory(index: number): ExpenseCategory {
   const categories: ExpenseCategory[] = [
     "Inventory",
     "Utilities",
@@ -118,7 +118,7 @@ async function main() {
     store_id: storeId,
     date: isoDate(index),
     vendor_name: ["Capital Candy", "Fuel Distributor", "City Utilities", "Beverage Warehouse"][index % 4],
-    category: sampleExpenseCategory(index),
+    category: seededExpenseCategory(index),
     amount: 180 + index * 45 + (index % 3 === 0 ? 600 : 0),
     payment_method: "ACH",
     notes: index % 3 === 0 ? "Seeded higher invoice for Profit Leak Finder testing." : null,
@@ -169,7 +169,7 @@ async function main() {
   const { error: payrollError } = await supabase.from("payroll_entries").insert(payrollEntries);
   if (payrollError) throw payrollError;
 
-  console.log(`Seeded ${seedStoreName} with sample sales, expenses, fuel, and payroll data.`);
+  console.log(`Seeded ${seedStoreName} with sales, expenses, fuel, and payroll data.`);
 }
 
 main().catch((error) => {

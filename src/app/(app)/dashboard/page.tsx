@@ -74,7 +74,7 @@ const leakTypeLabels = {
 } satisfies Record<ProfitLeakFinding["type"], string>;
 
 export default function DashboardPage() {
-  const { data, demoMode, loading, store } = useCommandCenter();
+  const { data, loading, store } = useCommandCenter();
   const today = todayIso();
   const todaySummary = aggregateData(data, today, today);
   const monthSummary = aggregateData(data);
@@ -93,7 +93,7 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader
-        eyebrow={demoMode ? "Demo dashboard" : "Live dashboard"}
+        eyebrow="Live dashboard"
         title={`${store?.name ?? "Store"} dashboard`}
         description="Track today's sales, profit estimates, fuel, lottery, deli, expenses, payroll, and category performance from one command center."
       />
