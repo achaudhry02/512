@@ -476,16 +476,18 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       });
 
       if (sessionError) {
-        throw sessionError;
+        console.warn("Smart Import session check failed:", sessionError);
       }
 
-      if (!session) {
+      const activeUser = session?.user ?? user;
+
+      if (!activeUser) {
         throw new Error("You must be signed in before importing rows.");
       }
 
       const supabaseClient = supabase;
-      const userId = session.user.id;
-      setUser(session.user);
+      const userId = activeUser.id;
+      setUser(activeUser);
 
       let activeStore = store?.user_id === userId ? store : null;
       if (!activeStore) {
@@ -797,7 +799,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await saveLearnedCorrections();
       await refresh();
     },
-    [data.import_rows, data.imports, refresh, store],
+    [data.import_rows, data.imports, refresh, store, user],
   );
 
   const updateProfile = useCallback(
