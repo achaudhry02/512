@@ -73,6 +73,7 @@ type CommandCenterContextValue = {
   profile: UserProfile | null;
   store: Store | null;
   data: CommandCenterData;
+  authLoading: boolean;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -174,6 +175,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [store, setStore] = useState<Store | null>(null);
   const [data, setData] = useState<CommandCenterData>(emptyData);
+  const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -185,6 +187,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setStore(null);
       setData(emptyData);
       setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setAuthLoading(false);
       setLoading(false);
       return;
     }
@@ -196,6 +199,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setStore(null);
       setData(emptyData);
       setError(null);
+      setAuthLoading(false);
       setLoading(false);
       return;
     }
@@ -203,6 +207,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     setUser(activeUser);
+    setAuthLoading(false);
     console.info("[auth] active Supabase session", {
       userId: activeUser.id,
       email: activeUser.email,
@@ -339,6 +344,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setAuthLoading(false);
       setLoading(false);
       return;
     }
@@ -359,6 +365,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setStore(null);
       setData(emptyData);
       setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      setAuthLoading(false);
       setLoading(false);
       return;
     }
@@ -453,12 +460,71 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
 
       const supabase = getSupabaseBrowserClient();
-      if (!supabase || !user || !store) {
+      if (!supabase) {
+        throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      }
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      console.info("[auth] smart import getSession", {
+        hasSession: Boolean(session),
+        userId: session?.user.id ?? null,
+        importRowsCount: rows.length,
+        acceptedRowsCount: acceptedRows.length,
+      });
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session) {
         throw new Error("You must be signed in before importing rows.");
       }
+
       const supabaseClient = supabase;
-      const userId = user.id;
-      const storeId = store.id;
+      const userId = session.user.id;
+      setUser(session.user);
+
+      let activeStore = store?.user_id === userId ? store : null;
+      if (!activeStore) {
+        const { data: stores, error: storesError } = await supabaseClient
+          .from("stores")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true });
+
+        if (storesError) {
+          throw storesError;
+        }
+
+        activeStore = (stores?.[0] as Store | undefined) ?? null;
+      }
+
+      if (!activeStore) {
+        const { data: newStore, error: newStoreError } = await supabaseClient
+          .from("stores")
+          .insert({
+            user_id: userId,
+            name: "My Convenience Store",
+            address: null,
+            city: null,
+            state: null,
+            zip: null,
+          })
+          .select("*")
+          .single();
+
+        if (newStoreError) {
+          throw newStoreError;
+        }
+
+        activeStore = newStore as Store;
+      }
+
+      setStore(activeStore);
+      const storeId = activeStore.id;
 
       const existingRowHashes = new Set(data.import_rows.map((row) => row.row_hash));
       const rowsToRecord = rows.filter((row) => !existingRowHashes.has(row.rowHash));
@@ -731,7 +797,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await saveLearnedCorrections();
       await refresh();
     },
-    [data.import_rows, data.imports, refresh, store, user],
+    [data.import_rows, data.imports, refresh, store],
   );
 
   const updateProfile = useCallback(
@@ -785,6 +851,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       profile,
       store,
       data,
+      authLoading,
       loading,
       error,
       refresh,
@@ -798,6 +865,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       data,
       deleteEntry,
       error,
+      authLoading,
       loading,
       profile,
       refresh,

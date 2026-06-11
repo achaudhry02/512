@@ -130,7 +130,7 @@ function productReports(productSales: ProductSale[]) {
 }
 
 export default function SmartImportPage() {
-  const { data, loading, saveSmartImport } = useCommandCenter();
+  const { authLoading, data, saveSmartImport } = useCommandCenter();
   const [parsedImport, setParsedImport] = useState<ParsedImportResult | null>(null);
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -271,6 +271,11 @@ export default function SmartImportPage() {
           <div className="mt-3 rounded-2xl bg-cyan-50 p-4 text-sm font-bold text-cyan-800">
             Learning system active: {data.vendor_rules.length + data.product_rules.length + data.category_rules.length} saved rules will be checked before built-in guesses.
           </div>
+          {authLoading ? (
+            <div className="mt-3 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
+              Checking login...
+            </div>
+          ) : null}
           {message ? <p className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{message}</p> : null}
           {error ? <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p> : null}
           {parsedImport ? (
@@ -300,12 +305,12 @@ export default function SmartImportPage() {
             </div>
             <button
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={saving || duplicateFile || loading}
+              disabled={saving || duplicateFile || authLoading}
               onClick={confirmImport}
               type="button"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Confirm Import
+              {authLoading ? "Checking login..." : "Confirm Import"}
             </button>
           </div>
           {parsedImport.warnings.length ? (
