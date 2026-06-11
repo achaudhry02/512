@@ -2,7 +2,7 @@
 
 import { ArrowRight, ChartNoAxesCombined, ShieldCheck, Sparkles, Store, WalletCards } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -12,8 +12,51 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setCheckingSession(false);
+      return;
+    }
+
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      console.info("[auth] login page getSession", {
+        hasSession: Boolean(data.session),
+        userId: data.session?.user.id ?? null,
+      });
+      if (!mounted) {
+        return;
+      }
+
+      if (data.session) {
+        router.replace("/dashboard");
+      } else {
+        setCheckingSession(false);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.info("[auth] login page onAuthStateChange", {
+        event,
+        hasSession: Boolean(session),
+        userId: session?.user.id ?? null,
+      });
+      if (session) {
+        router.replace("/dashboard");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,19 +84,36 @@ export default function LoginPage() {
           })
         : await supabase.auth.signInWithPassword({ email, password });
 
-    setLoading(false);
-
     if (result.error) {
+      setLoading(false);
       setError(result.error.message);
       return;
     }
 
     if (mode === "signup" && !result.data.session) {
+      setLoading(false);
       setMessage("Check your email to confirm your account, then sign in.");
       return;
     }
 
-    router.push("/dashboard");
+    const { data: sessionData } = await supabase.auth.getSession();
+    console.info("[auth] login completed", {
+      hasSession: Boolean(sessionData.session),
+      userId: sessionData.session?.user.id ?? null,
+    });
+    setLoading(false);
+    router.replace("/dashboard");
+  }
+
+  if (checkingSession && isSupabaseConfigured) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-6">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
+          <p className="text-sm font-black text-slate-950">Checking your session...</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">You will be redirected if you are already signed in.</p>
+        </div>
+      </main>
+    );
   }
 
   return (

@@ -49,9 +49,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loading && !user) {
+      console.info("[auth] protected route redirect to /login", {
+        pathname,
+        loading,
+        hasUser: Boolean(user),
+      });
       router.replace("/login");
     }
-  }, [loading, router, user]);
+  }, [loading, pathname, router, user]);
 
   async function handleSignOut() {
     const supabase = getSupabaseBrowserClient();

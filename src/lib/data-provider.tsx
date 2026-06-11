@@ -190,6 +190,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     if (!activeUser) {
+      console.info("[auth] no active Supabase session");
       setUser(activeUser);
       setProfile(null);
       setStore(null);
@@ -201,6 +202,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
     setLoading(true);
     setError(null);
+    setUser(activeUser);
+    console.info("[auth] active Supabase session", {
+      userId: activeUser.id,
+      email: activeUser.email,
+    });
 
     try {
       const profilePayload: UserProfile = {
@@ -310,11 +316,19 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      setUser(activeUser);
       setProfile(profileRow as UserProfile);
       setStore(activeStore ?? null);
       setData(nextData);
     } catch (loadError) {
+      setUser(activeUser);
+      setProfile((current) => current ?? {
+        id: activeUser.id,
+        email: activeUser.email ?? "",
+        full_name:
+          typeof activeUser.user_metadata?.full_name === "string"
+            ? activeUser.user_metadata.full_name
+            : null,
+      });
       setError(loadError instanceof Error ? loadError.message : "Unable to load store data.");
     } finally {
       setLoading(false);
@@ -330,6 +344,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     const { data: sessionData } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
+    console.info("[auth] refresh getSession", {
+      hasSession: Boolean(sessionData.session),
+      userId: sessionData.session?.user.id ?? null,
+    });
     await loadSupabaseData(sessionData.session?.user ?? null);
   }, [loadSupabaseData]);
 
@@ -348,12 +366,21 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     supabase.auth.getSession().then(({ data: sessionData }) => {
+      console.info("[auth] initial getSession", {
+        hasSession: Boolean(sessionData.session),
+        userId: sessionData.session?.user.id ?? null,
+      });
       if (mounted) {
         void loadSupabaseData(sessionData.session?.user ?? null);
       }
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.info("[auth] onAuthStateChange", {
+        event,
+        hasSession: Boolean(session),
+        userId: session?.user.id ?? null,
+      });
       void loadSupabaseData(session?.user ?? null);
     });
 

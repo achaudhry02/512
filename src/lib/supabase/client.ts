@@ -15,7 +15,20 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
     return null;
   }
 
-  browserClient ??= createBrowserClient(supabaseUrl, supabaseAnonKey);
+  browserClient ??= createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+      persistSession: true,
+      storageKey: "store-command-center-auth",
+    },
+    cookieOptions: {
+      name: "store-command-center-auth",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    },
+  });
 
   return browserClient;
 }
