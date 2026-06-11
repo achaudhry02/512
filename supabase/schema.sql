@@ -483,28 +483,88 @@ create policy "Users can manage their own payroll entries" on public.payroll_ent
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "Users can manage their own imports" on public.imports;
-create policy "Users can manage their own imports" on public.imports
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own imports" on public.imports;
+create policy "Users can select their own imports" on public.imports
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own imports" on public.imports;
+create policy "Users can insert their own imports" on public.imports
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own imports" on public.imports;
+create policy "Users can update their own imports" on public.imports
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own imports" on public.imports;
+create policy "Users can delete their own imports" on public.imports
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own import rows" on public.import_rows;
-create policy "Users can manage their own import rows" on public.import_rows
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own import rows" on public.import_rows;
+create policy "Users can select their own import rows" on public.import_rows
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own import rows" on public.import_rows;
+create policy "Users can insert their own import rows" on public.import_rows
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own import rows" on public.import_rows;
+create policy "Users can update their own import rows" on public.import_rows
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own import rows" on public.import_rows;
+create policy "Users can delete their own import rows" on public.import_rows
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own vendors" on public.vendors;
-create policy "Users can manage their own vendors" on public.vendors
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own vendors" on public.vendors;
+create policy "Users can select their own vendors" on public.vendors
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own vendors" on public.vendors;
+create policy "Users can insert their own vendors" on public.vendors
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own vendors" on public.vendors;
+create policy "Users can update their own vendors" on public.vendors
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own vendors" on public.vendors;
+create policy "Users can delete their own vendors" on public.vendors
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own product categories" on public.product_categories;
-create policy "Users can manage their own product categories" on public.product_categories
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own product categories" on public.product_categories;
+create policy "Users can select their own product categories" on public.product_categories
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own product categories" on public.product_categories;
+create policy "Users can insert their own product categories" on public.product_categories
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own product categories" on public.product_categories;
+create policy "Users can update their own product categories" on public.product_categories
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own product categories" on public.product_categories;
+create policy "Users can delete their own product categories" on public.product_categories
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own products" on public.products;
-create policy "Users can manage their own products" on public.products
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own products" on public.products;
+create policy "Users can select their own products" on public.products
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own products" on public.products;
+create policy "Users can insert their own products" on public.products
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own products" on public.products;
+create policy "Users can update their own products" on public.products
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own products" on public.products;
+create policy "Users can delete their own products" on public.products
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own product sales" on public.product_sales;
-create policy "Users can manage their own product sales" on public.product_sales
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "Users can select their own product sales" on public.product_sales;
+create policy "Users can select their own product sales" on public.product_sales
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own product sales" on public.product_sales;
+create policy "Users can insert their own product sales" on public.product_sales
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own product sales" on public.product_sales;
+create policy "Users can update their own product sales" on public.product_sales
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own product sales" on public.product_sales;
+create policy "Users can delete their own product sales" on public.product_sales
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own category rules" on public.category_rules;
 create policy "Users can manage their own category rules" on public.category_rules
