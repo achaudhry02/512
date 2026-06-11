@@ -197,18 +197,6 @@ function textIncludesAny(text: string, keywords: string[] = []) {
   return keywords.some((keyword) => text.includes(normalizeText(keyword)));
 }
 
-function inferGenericDestination(category: SmartImportCategory, hasProduct: boolean): SmartImportDestination {
-  if (category === "Fuel purchase") return "fuel_entries";
-  if (category === "Lottery") return "lottery_entries";
-  if (category === "Deli / Hot Food") return "deli_entries";
-  if (category === "Payroll") return "payroll_entries";
-  if (hasProduct) {
-    return "product_sales";
-  }
-
-  return "expenses";
-}
-
 export function categorizeImportLine(
   line: RawImportLine,
   fileType: string,
@@ -317,7 +305,7 @@ export function categorizeImportLine(
   return {
     suggestedCategory: best.category,
     confidenceScore,
-    importDestination: needsReview ? "needs_review" : inferGenericDestination(best.category, hasProduct) === "expenses" ? best.destination : inferGenericDestination(best.category, hasProduct),
+    importDestination: needsReview ? "needs_review" : best.destination,
     needsReview,
   };
 }

@@ -156,6 +156,9 @@ The schema creates:
 - `product_sales`
 - `vendors`
 - `product_categories`
+- `category_rules`
+- `vendor_rules`
+- `product_rules`
 
 All store-owned tables include `user_id` and `store_id`, plus row-level security policies using `auth.uid() = user_id`.
 
@@ -190,6 +193,24 @@ Upload flow:
 7. Click `Confirm Import`.
 
 Rows are not saved automatically. File hashes prevent duplicate file imports, and row hashes prevent duplicate row imports.
+
+### Learning system
+
+When a user corrects a row category before confirming an import, Smart Import saves that correction as a future rule:
+
+- `vendor_rules` remember vendor-level corrections, such as `Eversource -> Utilities`
+- `product_rules` remember product or SKU/UPC corrections, such as `Marlboro Gold Pack -> Cigarettes / Tobacco`
+- `category_rules` remember reusable description keywords from corrected rows
+
+Future imports check learned rules before built-in guesses.
+
+Confidence scoring:
+
+- `95%` = exact saved rule match
+- `85%` = strong keyword match
+- `70%` = vendor match
+- `50%` = weak guess
+- Below `50%` = Needs Review
 
 ### Categorization rules
 

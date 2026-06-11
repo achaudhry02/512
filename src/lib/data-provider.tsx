@@ -14,7 +14,6 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/c
 import { sampleData, sampleProfile, sampleStore } from "@/lib/sample-data";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
-  CategoryRuleRecord,
   CommandCenterData,
   ImportRecord,
   ImportRow,
@@ -24,8 +23,6 @@ import type {
   TableName,
   TableRowMap,
   UserProfile,
-  VendorRuleRecord,
-  ProductRuleRecord,
 } from "@/lib/types";
 
 const tableNames: TableName[] = [
