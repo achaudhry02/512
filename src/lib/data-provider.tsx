@@ -456,11 +456,16 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       );
 
       if (data.imports.some((record) => record.file_hash === parsedImport.fileHash)) {
+        console.error("Smart Import duplicate file:", {
+          fileName: parsedImport.fileName,
+          fileHash: parsedImport.fileHash,
+        });
         throw new Error("This file has already been imported. Smart Import prevented a duplicate file import.");
       }
 
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
+        console.error("Smart Import Supabase client missing.");
         throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
       }
 
@@ -482,6 +487,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const activeUser = session?.user ?? user;
 
       if (!activeUser) {
+        console.error("Smart Import missing authenticated user.", {
+          hasSession: Boolean(session),
+          hasProviderUser: Boolean(user),
+          importRowsCount: rows.length,
+        });
         throw new Error("You must be signed in before importing rows.");
       }
 
@@ -498,6 +508,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           .order("created_at", { ascending: true });
 
         if (storesError) {
+          console.error("Smart Import stores select failed:", storesError);
           throw storesError;
         }
 
@@ -519,6 +530,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           .single();
 
         if (newStoreError) {
+          console.error("Smart Import store insert failed:", newStoreError);
           throw newStoreError;
         }
 
@@ -537,6 +549,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (importError) {
+        console.error("Smart Import imports insert failed:", importError);
         throw importError;
       }
 
@@ -547,6 +560,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         : { data: [], error: null };
 
       if (importRowsError) {
+        console.error("Smart Import import_rows insert failed:", importRowsError);
         throw importRowsError;
       }
 
@@ -573,6 +587,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           .single();
 
         if (vendorError) {
+          console.error("Smart Import vendors upsert failed:", vendorError, {
+            vendor: name,
+            userId,
+            storeId,
+          });
           throw vendorError;
         }
 
@@ -595,6 +614,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           .single();
 
         if (categoryError) {
+          console.error("Smart Import product_categories upsert failed:", categoryError, {
+            category: row.suggestedCategory,
+            userId,
+            storeId,
+          });
           throw categoryError;
         }
 
@@ -623,6 +647,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           .single();
 
         if (productError) {
+          console.error("Smart Import products upsert failed:", productError, {
+            product: name,
+            skuUpc: row.skuUpc,
+            userId,
+            storeId,
+          });
           throw productError;
         }
 
@@ -651,6 +681,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
                 { onConflict: "user_id,store_id,normalized_vendor" },
               );
             if (vendorRuleError) {
+              console.error("Smart Import vendor_rules upsert failed:", vendorRuleError, {
+                vendor: row.vendor,
+                category: row.suggestedCategory,
+                userId,
+                storeId,
+              });
               throw vendorRuleError;
             }
           }
@@ -674,6 +710,13 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
                 { onConflict: "user_id,store_id,normalized_product" },
               );
             if (productRuleError) {
+              console.error("Smart Import product_rules upsert failed:", productRuleError, {
+                product: row.productName,
+                skuUpc: row.skuUpc,
+                category: row.suggestedCategory,
+                userId,
+                storeId,
+              });
               throw productRuleError;
             }
           }
@@ -697,6 +740,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
                 { onConflict: "user_id,store_id,normalized_keyword" },
               );
             if (categoryRuleError) {
+              console.error("Smart Import category_rules upsert failed:", categoryRuleError, {
+                keyword,
+                category: row.suggestedCategory,
+                userId,
+                storeId,
+              });
               throw categoryRuleError;
             }
           }
@@ -723,7 +772,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             payment_method: "Other",
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
           });
-          if (expenseError) throw expenseError;
+          if (expenseError) {
+            console.error("Smart Import expenses insert failed:", expenseError, { row, userId, storeId });
+            throw expenseError;
+          }
         } else if (row.importDestination === "fuel_entries") {
           const { error: fuelError } = await supabase.from("fuel_entries").insert({
             user_id: userId,
@@ -734,7 +786,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             retail_price_per_gallon: row.unitRetailPrice,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
           });
-          if (fuelError) throw fuelError;
+          if (fuelError) {
+            console.error("Smart Import fuel_entries insert failed:", fuelError, { row, userId, storeId });
+            throw fuelError;
+          }
         } else if (row.importDestination === "lottery_entries") {
           const { error: lotteryError } = await supabase.from("lottery_entries").insert({
             user_id: userId,
@@ -745,7 +800,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             commission_percentage: 6,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
           });
-          if (lotteryError) throw lotteryError;
+          if (lotteryError) {
+            console.error("Smart Import lottery_entries insert failed:", lotteryError, { row, userId, storeId });
+            throw lotteryError;
+          }
         } else if (row.importDestination === "deli_entries") {
           const { error: deliError } = await supabase.from("deli_entries").insert({
             user_id: userId,
@@ -756,7 +814,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             waste_amount: 0,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
           });
-          if (deliError) throw deliError;
+          if (deliError) {
+            console.error("Smart Import deli_entries insert failed:", deliError, { row, userId, storeId });
+            throw deliError;
+          }
         } else if (row.importDestination === "payroll_entries") {
           const { error: payrollError } = await supabase.from("payroll_entries").insert({
             user_id: userId,
@@ -768,7 +829,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             hourly_rate: row.unitCost || row.unitRetailPrice,
             notes: `Imported from ${parsedImport.fileName}`,
           });
-          if (payrollError) throw payrollError;
+          if (payrollError) {
+            console.error("Smart Import payroll_entries insert failed:", payrollError, { row, userId, storeId });
+            throw payrollError;
+          }
         } else if (row.importDestination === "product_sales") {
           const vendor = await ensureVendor(row);
           const category = await ensureCategory(row);
@@ -792,7 +856,16 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             category: row.suggestedCategory,
             vendor: vendor.name,
           });
-          if (saleError) throw saleError;
+          if (saleError) {
+            console.error("Smart Import product_sales insert failed:", saleError, {
+              row,
+              productId: product.id,
+              vendorId: vendor.id,
+              userId,
+              storeId,
+            });
+            throw saleError;
+          }
         }
       }
 

@@ -204,7 +204,16 @@ export default function SmartImportPage() {
       setParsedImport(null);
       setRows([]);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to confirm import.");
+      console.error("Smart Import confirm error:", saveError);
+
+      const message =
+        saveError instanceof Error
+          ? saveError.message
+          : typeof saveError === "object" && saveError !== null && "message" in saveError
+            ? String((saveError as { message?: unknown }).message)
+            : JSON.stringify(saveError);
+
+      setError(message || "Unable to confirm import.");
     } finally {
       setSaving(false);
     }
