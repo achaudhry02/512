@@ -155,6 +155,14 @@ export default function SmartImportPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append(
+        "rules",
+        JSON.stringify({
+          category_rules: data.category_rules,
+          vendor_rules: data.vendor_rules,
+          product_rules: data.product_rules,
+        }),
+      );
       const response = await fetch("/api/smart-import/parse", {
         method: "POST",
         body: formData,
@@ -259,6 +267,9 @@ export default function SmartImportPage() {
               <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Vendors</p>
               <p className="mt-2 text-3xl font-black text-slate-950">{data.vendors.length}</p>
             </div>
+          </div>
+          <div className="mt-3 rounded-2xl bg-cyan-50 p-4 text-sm font-bold text-cyan-800">
+            Learning system active: {data.vendor_rules.length + data.product_rules.length + data.category_rules.length} saved rules will be checked before built-in guesses.
           </div>
           {message ? <p className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{message}</p> : null}
           {error ? <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p> : null}
@@ -385,6 +396,9 @@ export default function SmartImportPage() {
                       <span className={`rounded-full px-2.5 py-1 text-xs font-black ${row.confidenceScore < 60 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
                         {row.confidenceScore}%
                       </span>
+                      {row.confidenceScore === 95 ? (
+                        <p className="mt-1 text-[11px] font-bold text-cyan-700">learned rule</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <select className="w-44 rounded-xl border border-slate-200 px-3 py-2 font-semibold" onChange={(event) => updateRow(row.rowHash, { importDestination: event.target.value as SmartImportDestination, needsReview: event.target.value === "needs_review" })} value={row.importDestination}>

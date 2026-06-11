@@ -271,6 +271,52 @@ create table if not exists public.product_sales (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.category_rules (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  keyword text not null,
+  normalized_keyword text not null,
+  category text not null default 'Other',
+  import_destination text not null default 'expenses',
+  confidence_score numeric(5,2) not null default 95,
+  usage_count integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, normalized_keyword)
+);
+
+create table if not exists public.vendor_rules (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  vendor_name text not null,
+  normalized_vendor text not null,
+  category text not null default 'Other',
+  import_destination text not null default 'expenses',
+  confidence_score numeric(5,2) not null default 95,
+  usage_count integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, normalized_vendor)
+);
+
+create table if not exists public.product_rules (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  product_name text not null,
+  sku_upc text,
+  normalized_product text not null,
+  category text not null default 'Other',
+  import_destination text not null default 'product_sales',
+  confidence_score numeric(5,2) not null default 95,
+  usage_count integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, normalized_product)
+);
+
 create index if not exists stores_user_id_idx on public.stores(user_id);
 create index if not exists daily_sales_user_store_date_idx on public.daily_sales(user_id, store_id, date desc);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
@@ -286,6 +332,10 @@ create index if not exists products_user_store_name_idx on public.products(user_
 create index if not exists products_user_store_sku_idx on public.products(user_id, store_id, sku_upc);
 create index if not exists product_sales_user_store_date_idx on public.product_sales(user_id, store_id, date desc);
 create index if not exists product_sales_user_store_category_idx on public.product_sales(user_id, store_id, category);
+create index if not exists category_rules_user_store_keyword_idx on public.category_rules(user_id, store_id, normalized_keyword);
+create index if not exists vendor_rules_user_store_vendor_idx on public.vendor_rules(user_id, store_id, normalized_vendor);
+create index if not exists product_rules_user_store_product_idx on public.product_rules(user_id, store_id, normalized_product);
+create index if not exists product_rules_user_store_sku_idx on public.product_rules(user_id, store_id, sku_upc);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -367,6 +417,21 @@ create trigger set_product_sales_updated_at
 before update on public.product_sales
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_category_rules_updated_at on public.category_rules;
+create trigger set_category_rules_updated_at
+before update on public.category_rules
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_vendor_rules_updated_at on public.vendor_rules;
+create trigger set_vendor_rules_updated_at
+before update on public.vendor_rules
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_product_rules_updated_at on public.product_rules;
+create trigger set_product_rules_updated_at
+before update on public.product_rules
+for each row execute function public.set_updated_at();
+
 alter table public.users enable row level security;
 alter table public.stores enable row level security;
 alter table public.daily_sales enable row level security;
@@ -381,6 +446,9 @@ alter table public.vendors enable row level security;
 alter table public.product_categories enable row level security;
 alter table public.products enable row level security;
 alter table public.product_sales enable row level security;
+alter table public.category_rules enable row level security;
+alter table public.vendor_rules enable row level security;
+alter table public.product_rules enable row level security;
 
 drop policy if exists "Users can manage their own profile" on public.users;
 create policy "Users can manage their own profile" on public.users
@@ -436,4 +504,16 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "Users can manage their own product sales" on public.product_sales;
 create policy "Users can manage their own product sales" on public.product_sales
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own category rules" on public.category_rules;
+create policy "Users can manage their own category rules" on public.category_rules
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own vendor rules" on public.vendor_rules;
+create policy "Users can manage their own vendor rules" on public.vendor_rules
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own product rules" on public.product_rules;
+create policy "Users can manage their own product rules" on public.product_rules
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

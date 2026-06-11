@@ -9,7 +9,7 @@ import {
   parseQuantity,
   type RawImportLine,
 } from "@/lib/smart-import";
-import type { ParsedImportResult, ParsedImportRow } from "@/lib/types";
+import type { LearnedCategorizationRules, ParsedImportResult, ParsedImportRow } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -126,8 +126,13 @@ function parseDelimitedPdfLine(line: string, rowIndex: number, fileName: string)
   };
 }
 
-function buildParsedRow(line: RawImportLine, fileType: string, fileHash: string): ParsedImportRow {
-  const category = categorizeImportLine(line, fileType);
+function buildParsedRow(
+  line: RawImportLine,
+  fileType: string,
+  fileHash: string,
+  learnedRules?: LearnedCategorizationRules,
+): ParsedImportRow {
+  const category = categorizeImportLine(line, fileType, learnedRules);
 
   return {
     rowIndex: line.rowIndex,
@@ -142,6 +147,7 @@ function buildParsedRow(line: RawImportLine, fileType: string, fileHash: string)
     unitRetailPrice: line.unitRetailPrice ?? 0,
     total: line.total ?? 0,
     suggestedCategory: category.suggestedCategory,
+    originalSuggestedCategory: category.suggestedCategory,
     confidenceScore: category.confidenceScore,
     importDestination: category.importDestination,
     needsReview: category.needsReview,
@@ -272,6 +278,7 @@ async function parseExcel(buffer: Buffer) {
 export async function POST(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file");
+  const rules = formData.get("rules");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Upload a PDF, Excel, or CSV file." }, { status: 400 });
@@ -285,6 +292,14 @@ export async function POST(request: Request) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const fileHash = hashBuffer(buffer);
   const fileType = extension.replace(".", "");
+  let learnedRules: LearnedCategorizationRules | undefined;
+  if (typeof rules === "string" && rules.trim()) {
+    try {
+      learnedRules = JSON.parse(rules) as LearnedCategorizationRules;
+    } catch {
+      return NextResponse.json({ error: "Saved rule payload was not valid JSON." }, { status: 400 });
+    }
+  }
   let parsed: { rawLines: RawImportLine[]; warnings: string[] };
   let parser: ParsedImportResult["parser"];
 
@@ -299,7 +314,7 @@ export async function POST(request: Request) {
     parser = "read-excel-file";
   }
 
-  const rows = parsed.rawLines.map((line) => buildParsedRow(line, fileType, fileHash));
+  const rows = parsed.rawLines.map((line) => buildParsedRow(line, fileType, fileHash, learnedRules));
   const warnings = [...parsed.warnings];
 
   if (!rows.length) {

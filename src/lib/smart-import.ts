@@ -1,4 +1,5 @@
 import type {
+  LearnedCategorizationRules,
   ParsedImportRow,
   SmartImportCategory,
   SmartImportDestination,
@@ -145,6 +146,10 @@ export function normalizeText(value: unknown) {
     .trim();
 }
 
+export function normalizedRuleKey(value: unknown) {
+  return normalizeText(value);
+}
+
 export function parseMoney(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -207,10 +212,12 @@ function inferGenericDestination(category: SmartImportCategory, hasProduct: bool
 export function categorizeImportLine(
   line: RawImportLine,
   fileType: string,
+  learnedRules?: LearnedCategorizationRules,
 ): Pick<ParsedImportRow, "suggestedCategory" | "confidenceScore" | "importDestination" | "needsReview"> {
   const vendor = normalizeText(line.vendor);
   const description = normalizeText(line.description);
   const product = normalizeText(line.productName);
+  const sku = normalizeText(line.skuUpc);
   const columns = normalizeText((line.columnNames ?? []).join(" "));
   const file = normalizeText(fileType);
   const total = Math.abs(line.total ?? 0);
@@ -224,30 +231,65 @@ export function categorizeImportLine(
   } = {
     category: "Other",
     destination: hasProduct ? "product_sales" : "needs_review",
-    score: 35,
+    score: 0,
   };
+
+  const productRule = learnedRules?.product_rules.find((rule) => {
+    const ruleSku = normalizeText(rule.sku_upc);
+    return (ruleSku && sku && ruleSku === sku) || (rule.normalized_product && product === rule.normalized_product);
+  });
+  if (productRule) {
+    best = {
+      category: productRule.category,
+      destination: productRule.import_destination,
+      score: 95,
+    };
+  }
+
+  const vendorRule = learnedRules?.vendor_rules.find(
+    (rule) => rule.normalized_vendor && vendor === rule.normalized_vendor,
+  );
+  if (vendorRule && vendorRule.confidence_score >= best.score) {
+    best = {
+      category: vendorRule.category,
+      destination: vendorRule.import_destination,
+      score: 95,
+    };
+  }
+
+  const categoryRule = learnedRules?.category_rules.find((rule) => {
+    const keyword = rule.normalized_keyword;
+    return keyword && (description.includes(keyword) || product.includes(keyword) || combined.includes(keyword));
+  });
+  if (categoryRule && categoryRule.confidence_score >= best.score) {
+    best = {
+      category: categoryRule.category,
+      destination: categoryRule.import_destination,
+      score: 95,
+    };
+  }
 
   for (const rule of categoryRules) {
     let score = 0;
 
     if (rule.vendorKeywords && textIncludesAny(vendor, rule.vendorKeywords)) {
-      score += 45;
+      score = Math.max(score, 70);
     }
 
     if (textIncludesAny(product, rule.keywords)) {
-      score += 42;
+      score = Math.max(score, 85);
     }
 
     if (!rule.productOnly && textIncludesAny(description, rule.keywords)) {
-      score += 34;
+      score = Math.max(score, 85);
     }
 
     if (textIncludesAny(columns, rule.keywords)) {
-      score += 12;
+      score = Math.max(score, 50);
     }
 
     if (rule.amountMin && total >= rule.amountMin) {
-      score += 8;
+      score = Math.max(score, 50);
     }
 
     if (score > best.score) {
@@ -261,16 +303,16 @@ export function categorizeImportLine(
 
   if (best.category === "Other") {
     if (combined.includes("pos") || combined.includes("sales report")) {
-      best = { category: "Inventory", destination: "product_sales", score: 55 };
+      best = { category: "Inventory", destination: "product_sales", score: 50 };
     } else if (combined.includes("invoice") && hasProduct) {
-      best = { category: "Inventory", destination: "product_sales", score: 52 };
+      best = { category: "Inventory", destination: "product_sales", score: 50 };
     } else if (total > 0) {
-      best = { category: "Other", destination: "expenses", score: 45 };
+      best = { category: "Other", destination: "expenses", score: 50 };
     }
   }
 
-  const confidenceScore = Math.max(1, Math.min(99, best.score));
-  const needsReview = confidenceScore < 60 || best.destination === "needs_review" || !line.date || (!line.description && !line.productName);
+  const confidenceScore = Math.max(0, Math.min(95, best.score));
+  const needsReview = confidenceScore < 50 || best.destination === "needs_review" || !line.date || (!line.description && !line.productName);
 
   return {
     suggestedCategory: best.category,

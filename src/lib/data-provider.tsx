@@ -12,8 +12,9 @@ import {
 } from "react";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { sampleData, sampleProfile, sampleStore } from "@/lib/sample-data";
-import { rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
+import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
+  CategoryRuleRecord,
   CommandCenterData,
   ImportRecord,
   ImportRow,
@@ -23,6 +24,8 @@ import type {
   TableName,
   TableRowMap,
   UserProfile,
+  VendorRuleRecord,
+  ProductRuleRecord,
 } from "@/lib/types";
 
 const tableNames: TableName[] = [
@@ -41,6 +44,9 @@ const smartImportTableNames = [
   "product_categories",
   "products",
   "product_sales",
+  "category_rules",
+  "vendor_rules",
+  "product_rules",
 ] as const;
 
 const emptyData: CommandCenterData = {
@@ -56,6 +62,9 @@ const emptyData: CommandCenterData = {
   product_categories: [],
   products: [],
   product_sales: [],
+  category_rules: [],
+  vendor_rules: [],
+  product_rules: [],
 };
 
 type EntryPayload<T extends TableName> = Omit<
@@ -150,6 +159,27 @@ function importRecordPayload(
       warnings: parsedImport.warnings,
     },
   };
+}
+
+function learnedKeyword(row: ParsedImportRow) {
+  const source = row.description || row.productName || row.vendor;
+  return source
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !/^\d+(\.\d+)?$/.test(word))
+    .slice(0, 4)
+    .join(" ")
+    .trim();
+}
+
+function correctedRows(rows: ParsedImportRow[]) {
+  return rows.filter(
+    (row) =>
+      !row.ignored &&
+      row.importDestination !== "ignore" &&
+      row.importDestination !== "needs_review" &&
+      row.originalSuggestedCategory &&
+      row.originalSuggestedCategory !== row.suggestedCategory,
+  );
 }
 
 export function CommandCenterProvider({ children }: { children: ReactNode }) {
@@ -464,6 +494,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           const lotteryEntries = [...current.lottery_entries];
           const deliEntries = [...current.deli_entries];
           const payrollEntries = [...current.payroll_entries];
+          const categoryRules = [...current.category_rules];
+          const vendorRules = [...current.vendor_rules];
+          const productRules = [...current.product_rules];
 
           function ensureVendor(name: string, category: ParsedImportRow["suggestedCategory"]) {
             const normalized = normalizedVendor(name);
@@ -521,6 +554,84 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
               products.push(product);
             }
             return product;
+          }
+
+          function rememberCorrection(row: ParsedImportRow) {
+            if (!correctedRows([row]).length) {
+              return;
+            }
+
+            if (row.vendor) {
+              const normalized = normalizedRuleKey(row.vendor);
+              const existing = vendorRules.find((rule) => rule.normalized_vendor === normalized);
+              if (existing) {
+                existing.category = row.suggestedCategory;
+                existing.import_destination = row.importDestination;
+                existing.usage_count += 1;
+              } else {
+                vendorRules.push({
+                  id: demoId("vendor_rules"),
+                  user_id: userId,
+                  store_id: storeId,
+                  vendor_name: row.vendor,
+                  normalized_vendor: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                });
+              }
+            }
+
+            if (row.productName || row.skuUpc) {
+              const normalized = normalizedRuleKey(row.productName || row.skuUpc);
+              const existing = productRules.find(
+                (rule) =>
+                  (row.skuUpc && rule.sku_upc === row.skuUpc) ||
+                  rule.normalized_product === normalized,
+              );
+              if (existing) {
+                existing.category = row.suggestedCategory;
+                existing.import_destination = row.importDestination;
+                existing.usage_count += 1;
+              } else {
+                productRules.push({
+                  id: demoId("product_rules"),
+                  user_id: userId,
+                  store_id: storeId,
+                  product_name: row.productName || row.description || "Imported product",
+                  sku_upc: row.skuUpc || null,
+                  normalized_product: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                });
+              }
+            }
+
+            const keyword = learnedKeyword(row);
+            if (keyword) {
+              const normalized = normalizedRuleKey(keyword);
+              const existing = categoryRules.find((rule) => rule.normalized_keyword === normalized);
+              if (existing) {
+                existing.category = row.suggestedCategory;
+                existing.import_destination = row.importDestination;
+                existing.usage_count += 1;
+              } else {
+                categoryRules.push({
+                  id: demoId("category_rules"),
+                  user_id: userId,
+                  store_id: storeId,
+                  keyword,
+                  normalized_keyword: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                });
+              }
+            }
           }
 
           for (const row of acceptedRows) {
@@ -616,6 +727,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
                 vendor: vendor.name,
               });
             }
+
+            rememberCorrection(row);
           }
 
           return {
@@ -631,6 +744,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             lottery_entries: lotteryEntries,
             deli_entries: deliEntries,
             payroll_entries: payrollEntries,
+            category_rules: categoryRules,
+            vendor_rules: vendorRules,
+            product_rules: productRules,
           };
         });
 
@@ -746,6 +862,80 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         return product as { id: string; name: string };
       }
 
+      async function saveLearnedCorrections() {
+        const corrections = correctedRows(rows);
+
+        for (const row of corrections) {
+          if (row.vendor) {
+            const normalized = normalizedRuleKey(row.vendor);
+            const { error: vendorRuleError } = await supabaseClient
+              .from("vendor_rules")
+              .upsert(
+                {
+                  user_id: userId,
+                  store_id: storeId,
+                  vendor_name: row.vendor,
+                  normalized_vendor: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                },
+                { onConflict: "user_id,store_id,normalized_vendor" },
+              );
+            if (vendorRuleError) {
+              throw vendorRuleError;
+            }
+          }
+
+          if (row.productName || row.skuUpc) {
+            const normalized = normalizedRuleKey(row.productName || row.skuUpc);
+            const { error: productRuleError } = await supabaseClient
+              .from("product_rules")
+              .upsert(
+                {
+                  user_id: userId,
+                  store_id: storeId,
+                  product_name: row.productName || row.description || "Imported product",
+                  sku_upc: row.skuUpc || null,
+                  normalized_product: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                },
+                { onConflict: "user_id,store_id,normalized_product" },
+              );
+            if (productRuleError) {
+              throw productRuleError;
+            }
+          }
+
+          const keyword = learnedKeyword(row);
+          if (keyword) {
+            const normalized = normalizedRuleKey(keyword);
+            const { error: categoryRuleError } = await supabaseClient
+              .from("category_rules")
+              .upsert(
+                {
+                  user_id: userId,
+                  store_id: storeId,
+                  keyword,
+                  normalized_keyword: normalized,
+                  category: row.suggestedCategory,
+                  import_destination: row.importDestination,
+                  confidence_score: 95,
+                  usage_count: 1,
+                },
+                { onConflict: "user_id,store_id,normalized_keyword" },
+              );
+            if (categoryRuleError) {
+              throw categoryRuleError;
+            }
+          }
+        }
+      }
+
       for (const row of acceptedRows) {
         if (!importRowIdByHash.has(row.rowHash)) {
           continue;
@@ -839,6 +1029,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      await saveLearnedCorrections();
       await refresh();
     },
     [data.import_rows, data.imports, demoMode, refresh, store, user],

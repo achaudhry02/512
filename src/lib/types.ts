@@ -200,6 +200,40 @@ export type ProductSale = EntryBase & {
   vendor: string | null;
 };
 
+export type CategoryRuleRecord = EntryBase & {
+  keyword: string;
+  normalized_keyword: string;
+  category: SmartImportCategory;
+  import_destination: SmartImportDestination;
+  confidence_score: number;
+  usage_count: number;
+};
+
+export type VendorRuleRecord = EntryBase & {
+  vendor_name: string;
+  normalized_vendor: string;
+  category: SmartImportCategory;
+  import_destination: SmartImportDestination;
+  confidence_score: number;
+  usage_count: number;
+};
+
+export type ProductRuleRecord = EntryBase & {
+  product_name: string;
+  sku_upc: string | null;
+  normalized_product: string;
+  category: SmartImportCategory;
+  import_destination: SmartImportDestination;
+  confidence_score: number;
+  usage_count: number;
+};
+
+export type LearnedCategorizationRules = {
+  category_rules: CategoryRuleRecord[];
+  vendor_rules: VendorRuleRecord[];
+  product_rules: ProductRuleRecord[];
+};
+
 export type ParsedImportRow = {
   rowIndex: number;
   rowHash: string;
@@ -213,6 +247,7 @@ export type ParsedImportRow = {
   unitRetailPrice: number;
   total: number;
   suggestedCategory: SmartImportCategory;
+  originalSuggestedCategory: SmartImportCategory;
   confidenceScore: number;
   importDestination: SmartImportDestination;
   needsReview: boolean;
@@ -260,6 +295,9 @@ export type CommandCenterData = {
   product_categories: ProductCategory[];
   products: Product[];
   product_sales: ProductSale[];
+  category_rules: CategoryRuleRecord[];
+  vendor_rules: VendorRuleRecord[];
+  product_rules: ProductRuleRecord[];
 };
 
 export type DashboardMetric = {
