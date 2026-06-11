@@ -57,7 +57,18 @@ create table if not exists public.expenses (
       'Repairs',
       'Fuel purchase',
       'Capital Candy',
+      'Lottery',
+      'Deli / Hot Food',
+      'Cigarettes / Tobacco',
+      'Beer / Alcohol',
+      'Grocery',
+      'Drinks',
+      'Candy',
+      'Snacks',
+      'Coffee',
+      'Supplies',
       'Taxes',
+      'Fees',
       'Other'
     )
   ),
@@ -66,6 +77,33 @@ create table if not exists public.expenses (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+alter table public.expenses drop constraint if exists expenses_category_check;
+alter table public.expenses add constraint expenses_category_check check (
+  category in (
+    'Inventory',
+    'Payroll',
+    'Rent/Mortgage',
+    'Utilities',
+    'Insurance',
+    'Repairs',
+    'Fuel purchase',
+    'Capital Candy',
+    'Lottery',
+    'Deli / Hot Food',
+    'Cigarettes / Tobacco',
+    'Beer / Alcohol',
+    'Grocery',
+    'Drinks',
+    'Candy',
+    'Snacks',
+    'Coffee',
+    'Supplies',
+    'Taxes',
+    'Fees',
+    'Other'
+  )
 );
 
 create table if not exists public.fuel_entries (
@@ -126,6 +164,113 @@ create table if not exists public.payroll_entries (
   total_pay numeric generated always as (hours_worked * hourly_rate) stored
 );
 
+create table if not exists public.imports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  original_file_name text not null,
+  file_type text not null,
+  file_size bigint not null default 0,
+  file_hash text not null,
+  row_count integer not null default 0,
+  status text not null default 'reviewed' check (status in ('reviewed', 'imported', 'duplicate', 'failed')),
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, file_hash)
+);
+
+create table if not exists public.import_rows (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid not null references public.imports(id) on delete cascade,
+  row_index integer not null,
+  row_hash text not null,
+  date date,
+  vendor text,
+  description text,
+  product_name text,
+  sku_upc text,
+  quantity numeric(12,3) not null default 0,
+  unit_cost numeric(12,4) not null default 0,
+  unit_retail_price numeric(12,4) not null default 0,
+  total numeric(12,2) not null default 0,
+  suggested_category text not null default 'Other',
+  confidence_score numeric(5,2) not null default 0,
+  import_destination text not null default 'needs_review',
+  needs_review boolean not null default false,
+  ignored boolean not null default false,
+  raw_data jsonb,
+  imported_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, row_hash)
+);
+
+create table if not exists public.vendors (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  name text not null,
+  normalized_name text not null,
+  category text not null default 'Other',
+  total_spend numeric(12,2) not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, normalized_name)
+);
+
+create table if not exists public.product_categories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  name text not null,
+  parent_category text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, name)
+);
+
+create table if not exists public.products (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  product_category_id uuid references public.product_categories(id) on delete set null,
+  vendor_id uuid references public.vendors(id) on delete set null,
+  name text not null,
+  sku_upc text,
+  category text not null default 'Other',
+  unit_cost numeric(12,4) not null default 0,
+  unit_retail_price numeric(12,4) not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, name)
+);
+
+create table if not exists public.product_sales (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  import_row_id uuid references public.import_rows(id) on delete set null,
+  product_id uuid references public.products(id) on delete set null,
+  vendor_id uuid references public.vendors(id) on delete set null,
+  date date not null,
+  product_name text not null,
+  sku_upc text,
+  quantity_sold numeric(12,3) not null default 0,
+  unit_cost numeric(12,4) not null default 0,
+  unit_retail_price numeric(12,4) not null default 0,
+  gross_sales numeric(12,2) not null default 0,
+  gross_profit numeric(12,2) not null default 0,
+  margin_percent numeric(8,3) not null default 0,
+  category text not null default 'Other',
+  vendor text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists stores_user_id_idx on public.stores(user_id);
 create index if not exists daily_sales_user_store_date_idx on public.daily_sales(user_id, store_id, date desc);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
@@ -133,6 +278,14 @@ create index if not exists fuel_entries_user_store_date_idx on public.fuel_entri
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
 create index if not exists deli_entries_user_store_date_idx on public.deli_entries(user_id, store_id, date desc);
 create index if not exists payroll_entries_user_store_date_idx on public.payroll_entries(user_id, store_id, date_range_start desc);
+create index if not exists imports_user_store_created_idx on public.imports(user_id, store_id, created_at desc);
+create index if not exists import_rows_user_store_import_idx on public.import_rows(user_id, store_id, import_id, row_index);
+create index if not exists vendors_user_store_name_idx on public.vendors(user_id, store_id, normalized_name);
+create index if not exists product_categories_user_store_name_idx on public.product_categories(user_id, store_id, name);
+create index if not exists products_user_store_name_idx on public.products(user_id, store_id, name);
+create index if not exists products_user_store_sku_idx on public.products(user_id, store_id, sku_upc);
+create index if not exists product_sales_user_store_date_idx on public.product_sales(user_id, store_id, date desc);
+create index if not exists product_sales_user_store_category_idx on public.product_sales(user_id, store_id, category);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -184,6 +337,36 @@ create trigger set_payroll_entries_updated_at
 before update on public.payroll_entries
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_imports_updated_at on public.imports;
+create trigger set_imports_updated_at
+before update on public.imports
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_import_rows_updated_at on public.import_rows;
+create trigger set_import_rows_updated_at
+before update on public.import_rows
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_vendors_updated_at on public.vendors;
+create trigger set_vendors_updated_at
+before update on public.vendors
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_product_categories_updated_at on public.product_categories;
+create trigger set_product_categories_updated_at
+before update on public.product_categories
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_products_updated_at on public.products;
+create trigger set_products_updated_at
+before update on public.products
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_product_sales_updated_at on public.product_sales;
+create trigger set_product_sales_updated_at
+before update on public.product_sales
+for each row execute function public.set_updated_at();
+
 alter table public.users enable row level security;
 alter table public.stores enable row level security;
 alter table public.daily_sales enable row level security;
@@ -192,6 +375,12 @@ alter table public.fuel_entries enable row level security;
 alter table public.lottery_entries enable row level security;
 alter table public.deli_entries enable row level security;
 alter table public.payroll_entries enable row level security;
+alter table public.imports enable row level security;
+alter table public.import_rows enable row level security;
+alter table public.vendors enable row level security;
+alter table public.product_categories enable row level security;
+alter table public.products enable row level security;
+alter table public.product_sales enable row level security;
 
 drop policy if exists "Users can manage their own profile" on public.users;
 create policy "Users can manage their own profile" on public.users
@@ -223,4 +412,28 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "Users can manage their own payroll entries" on public.payroll_entries;
 create policy "Users can manage their own payroll entries" on public.payroll_entries
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own imports" on public.imports;
+create policy "Users can manage their own imports" on public.imports
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own import rows" on public.import_rows;
+create policy "Users can manage their own import rows" on public.import_rows
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own vendors" on public.vendors;
+create policy "Users can manage their own vendors" on public.vendors
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own product categories" on public.product_categories;
+create policy "Users can manage their own product categories" on public.product_categories
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own products" on public.products;
+create policy "Users can manage their own products" on public.products
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own product sales" on public.product_sales;
+create policy "Users can manage their own product sales" on public.product_sales
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

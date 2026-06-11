@@ -1,14 +1,38 @@
 export type ExpenseCategory =
   | "Inventory"
+  | "Capital Candy"
+  | "Fuel purchase"
   | "Payroll"
   | "Rent/Mortgage"
   | "Utilities"
   | "Insurance"
   | "Repairs"
-  | "Fuel purchase"
-  | "Capital Candy"
+  | "Lottery"
+  | "Deli / Hot Food"
+  | "Cigarettes / Tobacco"
+  | "Beer / Alcohol"
+  | "Grocery"
+  | "Drinks"
+  | "Candy"
+  | "Snacks"
+  | "Coffee"
+  | "Supplies"
   | "Taxes"
+  | "Fees"
   | "Other";
+
+export type SmartImportCategory = ExpenseCategory;
+
+export type SmartImportDestination =
+  | "expenses"
+  | "daily_sales"
+  | "fuel_entries"
+  | "lottery_entries"
+  | "deli_entries"
+  | "payroll_entries"
+  | "product_sales"
+  | "needs_review"
+  | "ignore";
 
 export type PaymentMethod =
   | "Cash"
@@ -104,6 +128,108 @@ export type PayrollEntry = EntryBase & {
   notes: string | null;
 };
 
+export type ImportRecord = EntryBase & {
+  original_file_name: string;
+  file_type: string;
+  file_size: number;
+  file_hash: string;
+  row_count: number;
+  status: "reviewed" | "imported" | "duplicate" | "failed";
+  metadata: Record<string, unknown> | null;
+};
+
+export type ImportRow = EntryBase & {
+  import_id: string;
+  row_index: number;
+  row_hash: string;
+  date: string | null;
+  vendor: string | null;
+  description: string | null;
+  product_name: string | null;
+  sku_upc: string | null;
+  quantity: number;
+  unit_cost: number;
+  unit_retail_price: number;
+  total: number;
+  suggested_category: SmartImportCategory;
+  confidence_score: number;
+  import_destination: SmartImportDestination;
+  needs_review: boolean;
+  ignored: boolean;
+  raw_data: Record<string, unknown> | null;
+  imported_at?: string | null;
+};
+
+export type Vendor = EntryBase & {
+  name: string;
+  normalized_name: string;
+  category: SmartImportCategory;
+  total_spend: number;
+};
+
+export type ProductCategory = EntryBase & {
+  name: SmartImportCategory;
+  parent_category: string | null;
+};
+
+export type Product = EntryBase & {
+  product_category_id: string | null;
+  vendor_id: string | null;
+  name: string;
+  sku_upc: string | null;
+  category: SmartImportCategory;
+  unit_cost: number;
+  unit_retail_price: number;
+};
+
+export type ProductSale = EntryBase & {
+  import_id: string | null;
+  import_row_id: string | null;
+  product_id: string | null;
+  vendor_id: string | null;
+  date: string;
+  product_name: string;
+  sku_upc: string | null;
+  quantity_sold: number;
+  unit_cost: number;
+  unit_retail_price: number;
+  gross_sales: number;
+  gross_profit: number;
+  margin_percent: number;
+  category: SmartImportCategory;
+  vendor: string | null;
+};
+
+export type ParsedImportRow = {
+  rowIndex: number;
+  rowHash: string;
+  date: string | null;
+  vendor: string;
+  description: string;
+  productName: string;
+  skuUpc: string;
+  quantity: number;
+  unitCost: number;
+  unitRetailPrice: number;
+  total: number;
+  suggestedCategory: SmartImportCategory;
+  confidenceScore: number;
+  importDestination: SmartImportDestination;
+  needsReview: boolean;
+  ignored: boolean;
+  rawData: Record<string, unknown>;
+};
+
+export type ParsedImportResult = {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileHash: string;
+  parser: "pdf-parse" | "papaparse" | "read-excel-file";
+  warnings: string[];
+  rows: ParsedImportRow[];
+};
+
 export type TableName =
   | "daily_sales"
   | "expenses"
@@ -128,6 +254,12 @@ export type CommandCenterData = {
   lottery_entries: LotteryEntry[];
   deli_entries: DeliEntry[];
   payroll_entries: PayrollEntry[];
+  imports: ImportRecord[];
+  import_rows: ImportRow[];
+  vendors: Vendor[];
+  product_categories: ProductCategory[];
+  products: Product[];
+  product_sales: ProductSale[];
 };
 
 export type DashboardMetric = {
@@ -156,15 +288,38 @@ export type ProfitLeakFinding = {
 
 export const expenseCategories: ExpenseCategory[] = [
   "Inventory",
+  "Capital Candy",
+  "Fuel purchase",
   "Payroll",
   "Rent/Mortgage",
   "Utilities",
   "Insurance",
   "Repairs",
-  "Fuel purchase",
-  "Capital Candy",
+  "Lottery",
+  "Deli / Hot Food",
+  "Cigarettes / Tobacco",
+  "Beer / Alcohol",
+  "Grocery",
+  "Drinks",
+  "Candy",
+  "Snacks",
+  "Coffee",
+  "Supplies",
   "Taxes",
+  "Fees",
   "Other",
+];
+
+export const smartImportDestinations: SmartImportDestination[] = [
+  "expenses",
+  "daily_sales",
+  "fuel_entries",
+  "lottery_entries",
+  "deli_entries",
+  "payroll_entries",
+  "product_sales",
+  "needs_review",
+  "ignore",
 ];
 
 export const paymentMethods: PaymentMethod[] = [

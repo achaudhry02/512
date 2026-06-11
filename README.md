@@ -28,6 +28,9 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Loading states and error handling
 - Editable demo/sample mode when Supabase environment variables are not set
 - Profit Leak Finder alerts for high expenses, low fuel margin, deli waste, payroll drag, vendor increases, and low-margin days
+- Smart Import for PDF, Excel, and CSV files with editable review before saving
+- Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
+- Product Sales Breakdown, Vendor Spend, and Category Profit reports
 - Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
 
 ## Installation
@@ -147,8 +150,73 @@ The schema creates:
 - `lottery_entries`
 - `deli_entries`
 - `payroll_entries`
+- `imports`
+- `import_rows`
+- `products`
+- `product_sales`
+- `vendors`
+- `product_categories`
 
 All store-owned tables include `user_id` and `store_id`, plus row-level security policies using `auth.uid() = user_id`.
+
+## Smart Import
+
+Open `Smart Import` from the sidebar.
+
+Supported uploads:
+
+- PDF files
+- Excel files (`.xlsx`, with best-effort fallback for legacy `.xls`)
+- CSV files
+
+Common use cases:
+
+- Bank statements
+- Vendor invoices
+- Capital Candy invoices
+- POS sales reports
+- Payroll exports
+- Fuel reports
+- Lottery reports
+
+Upload flow:
+
+1. Upload a PDF, Excel, or CSV file.
+2. The server parses the file and extracts dates, vendors, descriptions, products, SKU/UPC, quantities, unit cost, unit retail price, totals, and raw row data.
+3. The rule-based categorization engine suggests a category, confidence score, and import destination.
+4. Review every row before saving.
+5. Edit category, vendor, product, date, amount, and destination as needed.
+6. Toggle rows off if they should be ignored.
+7. Click `Confirm Import`.
+
+Rows are not saved automatically. File hashes prevent duplicate file imports, and row hashes prevent duplicate row imports.
+
+### Categorization rules
+
+Smart Import uses vendor names, description keywords, amounts, file type, column names, and product keywords.
+
+Examples:
+
+- `Capital Candy` -> `Capital Candy` / product or inventory import
+- `fuel`, `gas`, `rack`, `gallon` -> `Fuel purchase`
+- `payroll`, `ADP`, `employee` -> `Payroll`
+- `Marlboro`, `Newport`, `Camel` -> `Cigarettes / Tobacco`
+- `Coke`, `Pepsi`, `Red Bull`, `Monster` -> `Drinks`
+- `coffee` -> `Coffee`
+- `chicken`, `pizza`, `sandwich` -> `Deli / Hot Food`
+- `beer`, `Modelo`, `Coors` -> `Beer / Alcohol`
+- `Eversource` -> `Utilities`
+
+PDF parsing uses server-side `pdf-parse`. CSV parsing uses PapaParse. Excel parsing uses `read-excel-file` because the commonly requested `xlsx` package currently has high-severity advisories with no fixed release.
+
+### Sample upload files
+
+Use the files in `samples/uploads/` to test Smart Import:
+
+- `capital-candy-invoice.csv`
+- `pos-sales-report.csv`
+- `fuel-report.xlsx`
+- `messy-vendor-invoice.pdf`
 
 ## Profit calculations
 
