@@ -293,6 +293,14 @@ export default function SmartImportPage() {
               <p className="mt-1 text-xs font-semibold text-slate-400">
                 {parsedImport.rows.length} extracted rows · parser: {parsedImport.parser}
               </p>
+              {parsedImport.reportType ? (
+                <p className="mt-2 text-xs font-bold text-cyan-200">
+                  Report type: {parsedImport.reportType === "department_sales" ? "Department Sales" : "Store Sales Summary"}
+                  {parsedImport.reportStartDate || parsedImport.reportEndDate
+                    ? ` · Period: ${parsedImport.reportStartDate ?? "unknown"} to ${parsedImport.reportEndDate ?? "unknown"}`
+                    : ""}
+                </p>
+              ) : null}
               {duplicateFile ? (
                 <p className="mt-3 rounded-xl bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-100 ring-1 ring-rose-300/20">
                   Duplicate file detected. Confirm Import is disabled for this file hash.
@@ -302,6 +310,120 @@ export default function SmartImportPage() {
           ) : null}
         </div>
       </section>
+
+      {parsedImport?.reportType ? (
+        <section className="mb-8 space-y-4 rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
+          <div>
+            <h3 className="text-xl font-black text-slate-950">
+              {parsedImport.reportType === "department_sales" ? "Department Sales preview" : "Store Sales Summary preview"}
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              Parser attempted: {parsedImport.parserAttempted ?? parsedImport.parser}
+            </p>
+            {parsedImport.parseError ? (
+              <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                Parsing error: {parsedImport.parseError}
+              </p>
+            ) : null}
+          </div>
+
+          {parsedImport.departmentSalesRows?.length ? (
+            <div className="overflow-x-auto rounded-3xl border border-slate-100">
+              <table className="min-w-[1100px] divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+                  <tr>
+                    {["Department", "Gross Sales", "Item Count", "Refunds", "Net Count", "Refund Amount", "Discounts", "Net Sales", "% Sales"].map((header) => (
+                      <th className="px-4 py-3 font-black" key={header}>{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {parsedImport.departmentSalesRows.map((row) => (
+                    <tr key={row.departmentName}>
+                      <td className="px-4 py-3 font-bold text-slate-900">{row.departmentName}</td>
+                      <td className="px-4 py-3">{currency(row.grossSales)}</td>
+                      <td className="px-4 py-3">{numberFormatter.format(row.itemCount)}</td>
+                      <td className="px-4 py-3">{numberFormatter.format(row.refundCount)}</td>
+                      <td className="px-4 py-3">{numberFormatter.format(row.netCount)}</td>
+                      <td className="px-4 py-3">{currency(row.refundAmount)}</td>
+                      <td className="px-4 py-3">{currency(row.discountAmount)}</td>
+                      <td className="px-4 py-3 font-black">{currency(row.netSales)}</td>
+                      <td className="px-4 py-3">{percent(row.percentOfSales)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {parsedImport.storeSalesSummary ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Fuel sales", parsedImport.storeSalesSummary.totalFuelSalesDollars],
+                ["Non fuel sales", parsedImport.storeSalesSummary.totalNonFuelSales],
+                ["Total sales", parsedImport.storeSalesSummary.totalSales],
+                ["Total revenue", parsedImport.storeSalesSummary.totalRevenue],
+              ].map(([label, value]) => (
+                <div className="rounded-2xl bg-slate-50 p-4" key={label}>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{label}</p>
+                  <p className="mt-2 text-xl font-black text-slate-950">{currency(Number(value))}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {parsedImport.fuelGradeSalesRows?.length ? (
+            <div className="overflow-x-auto rounded-3xl border border-slate-100">
+              <table className="min-w-[720px] divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+                  <tr>{["Grade", "Name", "Volume", "Sales", "% Fuel Sales"].map((header) => <th className="px-4 py-3 font-black" key={header}>{header}</th>)}</tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {parsedImport.fuelGradeSalesRows.map((row) => (
+                    <tr key={row.grade}>
+                      <td className="px-4 py-3 font-bold">{row.grade}</td>
+                      <td className="px-4 py-3">{row.gradeName}</td>
+                      <td className="px-4 py-3">{numberFormatter.format(row.volume)}</td>
+                      <td className="px-4 py-3 font-black">{currency(row.sales)}</td>
+                      <td className="px-4 py-3">{percent(row.percentOfTotalFuelSales)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {parsedImport.tenderSalesRows?.length ? (
+            <div className="overflow-x-auto rounded-3xl border border-slate-100">
+              <table className="min-w-[520px] divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+                  <tr>{["Payment Method", "Count", "Sales Amount"].map((header) => <th className="px-4 py-3 font-black" key={header}>{header}</th>)}</tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {parsedImport.tenderSalesRows.map((row) => (
+                    <tr key={row.paymentMethod}>
+                      <td className="px-4 py-3 font-bold">{row.paymentMethod}</td>
+                      <td className="px-4 py-3">{numberFormatter.format(row.count)}</td>
+                      <td className="px-4 py-3 font-black">{currency(row.salesAmount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {parsedImport.rawTextPreview ? (
+            <details className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-black text-slate-800">
+                Raw extracted text debug
+              </summary>
+              <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                {parsedImport.rawTextPreview}
+              </pre>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
 
       {parsedImport ? (
         <section className="mb-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">

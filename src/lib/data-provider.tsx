@@ -40,6 +40,10 @@ const smartImportTableNames = [
   "product_categories",
   "products",
   "product_sales",
+  "department_sales",
+  "store_sales_summaries",
+  "fuel_grade_sales",
+  "tender_sales",
   "category_rules",
   "vendor_rules",
   "product_rules",
@@ -58,6 +62,10 @@ const emptyData: CommandCenterData = {
   product_categories: [],
   products: [],
   product_sales: [],
+  department_sales: [],
+  store_sales_summaries: [],
+  fuel_grade_sales: [],
+  tender_sales: [],
   category_rules: [],
   vendor_rules: [],
   product_rules: [],
@@ -832,6 +840,85 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           if (payrollError) {
             console.error("Smart Import payroll_entries insert failed:", payrollError, { row, userId, storeId });
             throw payrollError;
+          }
+        } else if (row.importDestination === "department_sales") {
+          const raw = row.rawData;
+          const { error: departmentError } = await supabase.from("department_sales").insert({
+            user_id: userId,
+            store_id: storeId,
+            import_id: importId,
+            report_start_date: parsedImport.reportStartDate ?? row.date,
+            report_end_date: parsedImport.reportEndDate ?? row.date,
+            department_name: String(raw.department_name ?? row.productName ?? row.description),
+            gross_sales: Number(raw.gross_sales ?? 0),
+            item_count: Number(raw.item_count ?? 0),
+            refund_count: Number(raw.refund_count ?? 0),
+            net_count: Number(raw.net_count ?? row.quantity ?? 0),
+            refund_amount: Number(raw.refund_amount ?? 0),
+            discount_amount: Number(raw.discount_amount ?? 0),
+            net_sales: Number(raw.net_sales ?? row.total ?? 0),
+            percent_of_sales: Number(raw.percent_of_sales ?? 0),
+          });
+          if (departmentError) {
+            console.error("Smart Import department_sales insert failed:", departmentError, { row, userId, storeId });
+            throw departmentError;
+          }
+        } else if (row.importDestination === "store_sales_summaries") {
+          const raw = row.rawData;
+          const { error: summaryError } = await supabase.from("store_sales_summaries").insert({
+            user_id: userId,
+            store_id: storeId,
+            import_id: importId,
+            report_start_date: parsedImport.reportStartDate ?? row.date,
+            report_end_date: parsedImport.reportEndDate ?? row.date,
+            grand_total_store_sales: Number(raw.grandTotalStoreSales ?? raw.grand_total_store_sales ?? 0),
+            total_fuel_sales_volume: Number(raw.totalFuelSalesVolume ?? raw.total_fuel_sales_volume ?? 0),
+            total_fuel_sales_dollars: Number(raw.totalFuelSalesDollars ?? raw.total_fuel_sales_dollars ?? 0),
+            fuel_discounts: Number(raw.fuelDiscounts ?? raw.fuel_discounts ?? 0),
+            total_non_fuel_sales: Number(raw.totalNonFuelSales ?? raw.total_non_fuel_sales ?? 0),
+            other_discounts: Number(raw.otherDiscounts ?? raw.other_discounts ?? 0),
+            total_taxes_collected: Number(raw.totalTaxesCollected ?? raw.total_taxes_collected ?? 0),
+            total_sales: Number(raw.totalSales ?? raw.total_sales ?? 0),
+            total_revenue: Number(raw.totalRevenue ?? raw.total_revenue ?? 0),
+            network_revenue: Number(raw.networkRevenue ?? raw.network_revenue ?? 0),
+          });
+          if (summaryError) {
+            console.error("Smart Import store_sales_summaries insert failed:", summaryError, { row, userId, storeId });
+            throw summaryError;
+          }
+        } else if (row.importDestination === "fuel_grade_sales") {
+          const raw = row.rawData;
+          const { error: fuelGradeError } = await supabase.from("fuel_grade_sales").insert({
+            user_id: userId,
+            store_id: storeId,
+            import_id: importId,
+            report_start_date: parsedImport.reportStartDate ?? row.date,
+            report_end_date: parsedImport.reportEndDate ?? row.date,
+            grade: String(raw.grade ?? row.skuUpc ?? ""),
+            grade_name: String(raw.grade_name ?? row.productName ?? ""),
+            volume: Number(raw.volume ?? row.quantity ?? 0),
+            sales: Number(raw.sales ?? row.total ?? 0),
+            percent_of_total_fuel_sales: Number(raw.percent_of_total_fuel_sales ?? 0),
+          });
+          if (fuelGradeError) {
+            console.error("Smart Import fuel_grade_sales insert failed:", fuelGradeError, { row, userId, storeId });
+            throw fuelGradeError;
+          }
+        } else if (row.importDestination === "tender_sales") {
+          const raw = row.rawData;
+          const { error: tenderError } = await supabase.from("tender_sales").insert({
+            user_id: userId,
+            store_id: storeId,
+            import_id: importId,
+            report_start_date: parsedImport.reportStartDate ?? row.date,
+            report_end_date: parsedImport.reportEndDate ?? row.date,
+            payment_method: String(raw.payment_method ?? row.productName ?? row.description),
+            count: Number(raw.count ?? row.quantity ?? 0),
+            sales_amount: Number(raw.sales_amount ?? row.total ?? 0),
+          });
+          if (tenderError) {
+            console.error("Smart Import tender_sales insert failed:", tenderError, { row, userId, storeId });
+            throw tenderError;
           }
         } else if (row.importDestination === "product_sales") {
           const vendor = await ensureVendor(row);

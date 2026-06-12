@@ -16,6 +16,10 @@ export type RawImportLine = {
   unitCost?: number | null;
   unitRetailPrice?: number | null;
   total?: number | null;
+  suggestedCategory?: SmartImportCategory;
+  importDestination?: SmartImportDestination;
+  confidenceScore?: number;
+  needsReview?: boolean;
   rawData: Record<string, unknown>;
   columnNames?: string[];
 };

@@ -271,6 +271,73 @@ create table if not exists public.product_sales (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.department_sales (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  report_start_date date,
+  report_end_date date,
+  department_name text not null,
+  gross_sales numeric(12,2) not null default 0,
+  item_count integer not null default 0,
+  refund_count integer not null default 0,
+  net_count integer not null default 0,
+  refund_amount numeric(12,2) not null default 0,
+  discount_amount numeric(12,2) not null default 0,
+  net_sales numeric(12,2) not null default 0,
+  percent_of_sales numeric(8,3) not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.store_sales_summaries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  report_start_date date,
+  report_end_date date,
+  grand_total_store_sales numeric(12,2) not null default 0,
+  total_fuel_sales_volume numeric(12,3) not null default 0,
+  total_fuel_sales_dollars numeric(12,2) not null default 0,
+  fuel_discounts numeric(12,2) not null default 0,
+  total_non_fuel_sales numeric(12,2) not null default 0,
+  other_discounts numeric(12,2) not null default 0,
+  total_taxes_collected numeric(12,2) not null default 0,
+  total_sales numeric(12,2) not null default 0,
+  total_revenue numeric(12,2) not null default 0,
+  network_revenue numeric(12,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.fuel_grade_sales (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  report_start_date date,
+  report_end_date date,
+  grade text not null,
+  grade_name text not null,
+  volume numeric(12,3) not null default 0,
+  sales numeric(12,2) not null default 0,
+  percent_of_total_fuel_sales numeric(8,3) not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.tender_sales (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  report_start_date date,
+  report_end_date date,
+  payment_method text not null,
+  count integer not null default 0,
+  sales_amount numeric(12,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.category_rules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -332,6 +399,10 @@ create index if not exists products_user_store_name_idx on public.products(user_
 create index if not exists products_user_store_sku_idx on public.products(user_id, store_id, sku_upc);
 create index if not exists product_sales_user_store_date_idx on public.product_sales(user_id, store_id, date desc);
 create index if not exists product_sales_user_store_category_idx on public.product_sales(user_id, store_id, category);
+create index if not exists department_sales_user_store_report_idx on public.department_sales(user_id, store_id, report_end_date desc);
+create index if not exists store_sales_summaries_user_store_report_idx on public.store_sales_summaries(user_id, store_id, report_end_date desc);
+create index if not exists fuel_grade_sales_user_store_report_idx on public.fuel_grade_sales(user_id, store_id, report_end_date desc);
+create index if not exists tender_sales_user_store_report_idx on public.tender_sales(user_id, store_id, report_end_date desc);
 create index if not exists category_rules_user_store_keyword_idx on public.category_rules(user_id, store_id, normalized_keyword);
 create index if not exists vendor_rules_user_store_vendor_idx on public.vendor_rules(user_id, store_id, normalized_vendor);
 create index if not exists product_rules_user_store_product_idx on public.product_rules(user_id, store_id, normalized_product);
@@ -446,6 +517,10 @@ alter table public.vendors enable row level security;
 alter table public.product_categories enable row level security;
 alter table public.products enable row level security;
 alter table public.product_sales enable row level security;
+alter table public.department_sales enable row level security;
+alter table public.store_sales_summaries enable row level security;
+alter table public.fuel_grade_sales enable row level security;
+alter table public.tender_sales enable row level security;
 alter table public.category_rules enable row level security;
 alter table public.vendor_rules enable row level security;
 alter table public.product_rules enable row level security;
@@ -564,6 +639,58 @@ create policy "Users can update their own product sales" on public.product_sales
 for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 drop policy if exists "Users can delete their own product sales" on public.product_sales;
 create policy "Users can delete their own product sales" on public.product_sales
+for delete using (user_id = auth.uid());
+
+drop policy if exists "Users can select their own department sales" on public.department_sales;
+create policy "Users can select their own department sales" on public.department_sales
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own department sales" on public.department_sales;
+create policy "Users can insert their own department sales" on public.department_sales
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own department sales" on public.department_sales;
+create policy "Users can update their own department sales" on public.department_sales
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own department sales" on public.department_sales;
+create policy "Users can delete their own department sales" on public.department_sales
+for delete using (user_id = auth.uid());
+
+drop policy if exists "Users can select their own store sales summaries" on public.store_sales_summaries;
+create policy "Users can select their own store sales summaries" on public.store_sales_summaries
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own store sales summaries" on public.store_sales_summaries;
+create policy "Users can insert their own store sales summaries" on public.store_sales_summaries
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own store sales summaries" on public.store_sales_summaries;
+create policy "Users can update their own store sales summaries" on public.store_sales_summaries
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own store sales summaries" on public.store_sales_summaries;
+create policy "Users can delete their own store sales summaries" on public.store_sales_summaries
+for delete using (user_id = auth.uid());
+
+drop policy if exists "Users can select their own fuel grade sales" on public.fuel_grade_sales;
+create policy "Users can select their own fuel grade sales" on public.fuel_grade_sales
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own fuel grade sales" on public.fuel_grade_sales;
+create policy "Users can insert their own fuel grade sales" on public.fuel_grade_sales
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own fuel grade sales" on public.fuel_grade_sales;
+create policy "Users can update their own fuel grade sales" on public.fuel_grade_sales
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own fuel grade sales" on public.fuel_grade_sales;
+create policy "Users can delete their own fuel grade sales" on public.fuel_grade_sales
+for delete using (user_id = auth.uid());
+
+drop policy if exists "Users can select their own tender sales" on public.tender_sales;
+create policy "Users can select their own tender sales" on public.tender_sales
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own tender sales" on public.tender_sales;
+create policy "Users can insert their own tender sales" on public.tender_sales
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own tender sales" on public.tender_sales;
+create policy "Users can update their own tender sales" on public.tender_sales
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own tender sales" on public.tender_sales;
+create policy "Users can delete their own tender sales" on public.tender_sales
 for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own category rules" on public.category_rules;

@@ -31,6 +31,10 @@ export type SmartImportDestination =
   | "deli_entries"
   | "payroll_entries"
   | "product_sales"
+  | "department_sales"
+  | "store_sales_summaries"
+  | "fuel_grade_sales"
+  | "tender_sales"
   | "needs_review"
   | "ignore";
 
@@ -200,6 +204,57 @@ export type ProductSale = EntryBase & {
   vendor: string | null;
 };
 
+export type DepartmentSale = EntryBase & {
+  import_id: string | null;
+  report_start_date: string | null;
+  report_end_date: string | null;
+  department_name: string;
+  gross_sales: number;
+  item_count: number;
+  refund_count: number;
+  net_count: number;
+  refund_amount: number;
+  discount_amount: number;
+  net_sales: number;
+  percent_of_sales: number;
+};
+
+export type StoreSalesSummary = EntryBase & {
+  import_id: string | null;
+  report_start_date: string | null;
+  report_end_date: string | null;
+  grand_total_store_sales: number;
+  total_fuel_sales_volume: number;
+  total_fuel_sales_dollars: number;
+  fuel_discounts: number;
+  total_non_fuel_sales: number;
+  other_discounts: number;
+  total_taxes_collected: number;
+  total_sales: number;
+  total_revenue: number;
+  network_revenue: number;
+};
+
+export type FuelGradeSale = EntryBase & {
+  import_id: string | null;
+  report_start_date: string | null;
+  report_end_date: string | null;
+  grade: string;
+  grade_name: string;
+  volume: number;
+  sales: number;
+  percent_of_total_fuel_sales: number;
+};
+
+export type TenderSale = EntryBase & {
+  import_id: string | null;
+  report_start_date: string | null;
+  report_end_date: string | null;
+  payment_method: string;
+  count: number;
+  sales_amount: number;
+};
+
 export type CategoryRuleRecord = EntryBase & {
   keyword: string;
   normalized_keyword: string;
@@ -234,6 +289,47 @@ export type LearnedCategorizationRules = {
   product_rules: ProductRuleRecord[];
 };
 
+export type SunocoReportType = "department_sales" | "store_sales_summary";
+
+export type ParsedDepartmentSaleRow = {
+  departmentName: string;
+  grossSales: number;
+  itemCount: number;
+  refundCount: number;
+  netCount: number;
+  refundAmount: number;
+  discountAmount: number;
+  netSales: number;
+  percentOfSales: number;
+};
+
+export type ParsedFuelGradeSaleRow = {
+  grade: string;
+  gradeName: string;
+  volume: number;
+  sales: number;
+  percentOfTotalFuelSales: number;
+};
+
+export type ParsedTenderSaleRow = {
+  paymentMethod: string;
+  count: number;
+  salesAmount: number;
+};
+
+export type ParsedStoreSalesSummary = {
+  grandTotalStoreSales: number;
+  totalFuelSalesVolume: number;
+  totalFuelSalesDollars: number;
+  fuelDiscounts: number;
+  totalNonFuelSales: number;
+  otherDiscounts: number;
+  totalTaxesCollected: number;
+  totalSales: number;
+  totalRevenue: number;
+  networkRevenue: number;
+};
+
 export type ParsedImportRow = {
   rowIndex: number;
   rowHash: string;
@@ -260,7 +356,17 @@ export type ParsedImportResult = {
   fileType: string;
   fileSize: number;
   fileHash: string;
-  parser: "pdf-parse" | "papaparse" | "read-excel-file";
+  parser: "pdf-parse" | "papaparse" | "read-excel-file" | "sunoco-department-sales" | "sunoco-store-sales-summary";
+  reportType?: SunocoReportType;
+  reportStartDate?: string | null;
+  reportEndDate?: string | null;
+  parserAttempted?: string;
+  rawTextPreview?: string;
+  parseError?: string;
+  departmentSalesRows?: ParsedDepartmentSaleRow[];
+  storeSalesSummary?: ParsedStoreSalesSummary;
+  fuelGradeSalesRows?: ParsedFuelGradeSaleRow[];
+  tenderSalesRows?: ParsedTenderSaleRow[];
   warnings: string[];
   rows: ParsedImportRow[];
 };
@@ -295,6 +401,10 @@ export type CommandCenterData = {
   product_categories: ProductCategory[];
   products: Product[];
   product_sales: ProductSale[];
+  department_sales: DepartmentSale[];
+  store_sales_summaries: StoreSalesSummary[];
+  fuel_grade_sales: FuelGradeSale[];
+  tender_sales: TenderSale[];
   category_rules: CategoryRuleRecord[];
   vendor_rules: VendorRuleRecord[];
   product_rules: ProductRuleRecord[];
@@ -356,6 +466,10 @@ export const smartImportDestinations: SmartImportDestination[] = [
   "deli_entries",
   "payroll_entries",
   "product_sales",
+  "department_sales",
+  "store_sales_summaries",
+  "fuel_grade_sales",
+  "tender_sales",
   "needs_review",
   "ignore",
 ];

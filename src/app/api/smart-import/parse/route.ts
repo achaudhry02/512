@@ -9,6 +9,12 @@ import {
   parseQuantity,
   type RawImportLine,
 } from "@/lib/smart-import";
+import {
+  isDepartmentSalesReport,
+  isStoreSalesSummaryReport,
+  parseDepartmentSalesReport,
+  parseStoreSalesSummaryReport,
+} from "@/lib/sunoco-reports";
 import type { LearnedCategorizationRules, ParsedImportResult, ParsedImportRow } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -133,6 +139,10 @@ function buildParsedRow(
   learnedRules?: LearnedCategorizationRules,
 ): ParsedImportRow {
   const category = categorizeImportLine(line, fileType, learnedRules);
+  const suggestedCategory = line.suggestedCategory ?? category.suggestedCategory;
+  const confidenceScore = line.confidenceScore ?? category.confidenceScore;
+  const importDestination = line.importDestination ?? category.importDestination;
+  const needsReview = line.needsReview ?? category.needsReview;
 
   return {
     rowIndex: line.rowIndex,
@@ -146,13 +156,142 @@ function buildParsedRow(
     unitCost: line.unitCost ?? 0,
     unitRetailPrice: line.unitRetailPrice ?? 0,
     total: line.total ?? 0,
-    suggestedCategory: category.suggestedCategory,
-    originalSuggestedCategory: category.suggestedCategory,
-    confidenceScore: category.confidenceScore,
-    importDestination: category.importDestination,
-    needsReview: category.needsReview,
+    suggestedCategory,
+    originalSuggestedCategory: suggestedCategory,
+    confidenceScore,
+    importDestination,
+    needsReview,
     ignored: false,
     rawData: line.rawData,
+  };
+}
+
+function rawTextPreview(text: string) {
+  return text.slice(0, 12000);
+}
+
+function departmentRowsToRawLines(text: string) {
+  const parsed = parseDepartmentSalesReport(text);
+
+  return {
+    reportType: "department_sales" as const,
+    reportStartDate: parsed.reportStartDate,
+    reportEndDate: parsed.reportEndDate,
+    departmentSalesRows: parsed.rows,
+    rawLines: parsed.rows.map<RawImportLine>((row, index) => ({
+      rowIndex: index + 1,
+      date: parsed.reportEndDate ?? parsed.reportStartDate,
+      vendor: "Sunoco POS",
+      description: `Department Sales: ${row.departmentName}`,
+      productName: row.departmentName,
+      skuUpc: "",
+      quantity: row.netCount,
+      unitCost: 0,
+      unitRetailPrice: 0,
+      total: row.netSales,
+      suggestedCategory: "Other",
+      importDestination: "department_sales",
+      confidenceScore: 95,
+      needsReview: false,
+      rawData: {
+        report_type: "department_sales",
+        department_name: row.departmentName,
+        gross_sales: row.grossSales,
+        item_count: row.itemCount,
+        refund_count: row.refundCount,
+        net_count: row.netCount,
+        refund_amount: row.refundAmount,
+        discount_amount: row.discountAmount,
+        net_sales: row.netSales,
+        percent_of_sales: row.percentOfSales,
+      },
+      columnNames: ["department_name", "gross_sales", "item_count", "refund_count", "net_count", "refund_amount", "discount_amount", "net_sales", "percent_of_sales"],
+    })),
+  };
+}
+
+function storeSummaryToRawLines(text: string) {
+  const parsed = parseStoreSalesSummaryReport(text);
+  const rawLines: RawImportLine[] = [
+    {
+      rowIndex: 1,
+      date: parsed.reportEndDate ?? parsed.reportStartDate,
+      vendor: "Sunoco POS",
+      description: "Store Sales Summary",
+      productName: "Store Sales Summary",
+      skuUpc: "",
+      quantity: 0,
+      unitCost: 0,
+      unitRetailPrice: 0,
+      total: parsed.summary.totalSales,
+      suggestedCategory: "Other",
+      importDestination: "store_sales_summaries",
+      confidenceScore: 95,
+      needsReview: false,
+      rawData: {
+        report_type: "store_sales_summary",
+        ...parsed.summary,
+      },
+      columnNames: ["grand_total_store_sales", "total_fuel_sales_volume", "total_fuel_sales_dollars", "fuel_discounts", "total_non_fuel_sales", "other_discounts", "total_taxes_collected", "total_sales", "total_revenue", "network_revenue"],
+    },
+    ...parsed.fuelGrades.map<RawImportLine>((row, index) => ({
+      rowIndex: index + 2,
+      date: parsed.reportEndDate ?? parsed.reportStartDate,
+      vendor: "Sunoco POS",
+      description: `Fuel Grade ${row.grade} ${row.gradeName}`,
+      productName: row.gradeName,
+      skuUpc: row.grade,
+      quantity: row.volume,
+      unitCost: 0,
+      unitRetailPrice: row.volume > 0 ? row.sales / row.volume : 0,
+      total: row.sales,
+      suggestedCategory: "Fuel purchase",
+      importDestination: "fuel_grade_sales",
+      confidenceScore: 95,
+      needsReview: false,
+      rawData: {
+        report_type: "fuel_grade_sales",
+        grade: row.grade,
+        grade_name: row.gradeName,
+        volume: row.volume,
+        sales: row.sales,
+        percent_of_total_fuel_sales: row.percentOfTotalFuelSales,
+      },
+      columnNames: ["grade", "grade_name", "volume", "sales", "percent_of_total_fuel_sales"],
+    })),
+    ...parsed.tenders.map<RawImportLine>((row, index) => ({
+      rowIndex: index + 2 + parsed.fuelGrades.length,
+      date: parsed.reportEndDate ?? parsed.reportStartDate,
+      vendor: "Sunoco POS",
+      description: `Tender ${row.paymentMethod}`,
+      productName: row.paymentMethod,
+      skuUpc: "",
+      quantity: row.count,
+      unitCost: 0,
+      unitRetailPrice: 0,
+      total: row.salesAmount,
+      suggestedCategory: "Other",
+      importDestination: "tender_sales",
+      confidenceScore: 95,
+      needsReview: false,
+      rawData: {
+        report_type: "tender_sales",
+        payment_method: row.paymentMethod,
+        count: row.count,
+        sales_amount: row.salesAmount,
+      },
+      columnNames: ["payment_method", "count", "sales_amount"],
+    })),
+  ];
+
+  return {
+    reportType: "store_sales_summary" as const,
+    reportStartDate: parsed.reportStartDate,
+    reportEndDate: parsed.reportEndDate,
+    storeSalesSummary: parsed.summary,
+    fuelGradeSalesRows: parsed.fuelGrades,
+    tenderSalesRows: parsed.tenders,
+    rawLines,
   };
 }
 
@@ -168,6 +307,91 @@ async function parsePdf(buffer: Buffer, fileName: string) {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
+
+    if (isDepartmentSalesReport(parsed.text)) {
+      try {
+        return {
+          ...departmentRowsToRawLines(parsed.text),
+          warnings,
+          parser: "sunoco-department-sales" as const,
+          parserAttempted: "Sunoco Department Sales Report",
+          rawTextPreview: rawTextPreview(parsed.text),
+        };
+      } catch (error) {
+        return {
+          rawLines: [
+            {
+              rowIndex: 1,
+              date: null,
+              vendor: "Sunoco POS",
+              description: "Department Sales Report parsing failed. Needs Review.",
+              productName: "",
+              skuUpc: "",
+              quantity: 0,
+              unitCost: 0,
+              unitRetailPrice: 0,
+              total: 0,
+              suggestedCategory: "Other",
+              importDestination: "needs_review",
+              confidenceScore: 0,
+              needsReview: true,
+              rawData: {
+                error: error instanceof Error ? error.message : "Unknown Department Sales parser error",
+              },
+              columnNames: ["error"],
+            } satisfies RawImportLine,
+          ],
+          warnings: ["Department Sales Report parser failed. Review raw text in the debug box."],
+          parser: "sunoco-department-sales" as const,
+          parserAttempted: "Sunoco Department Sales Report",
+          parseError: error instanceof Error ? error.message : "Unknown Department Sales parser error",
+          rawTextPreview: rawTextPreview(parsed.text),
+        };
+      }
+    }
+
+    if (isStoreSalesSummaryReport(parsed.text)) {
+      try {
+        return {
+          ...storeSummaryToRawLines(parsed.text),
+          warnings,
+          parser: "sunoco-store-sales-summary" as const,
+          parserAttempted: "Sunoco Store Sales Summary Report",
+          rawTextPreview: rawTextPreview(parsed.text),
+        };
+      } catch (error) {
+        return {
+          rawLines: [
+            {
+              rowIndex: 1,
+              date: null,
+              vendor: "Sunoco POS",
+              description: "Store Sales Summary Report parsing failed. Needs Review.",
+              productName: "",
+              skuUpc: "",
+              quantity: 0,
+              unitCost: 0,
+              unitRetailPrice: 0,
+              total: 0,
+              suggestedCategory: "Other",
+              importDestination: "needs_review",
+              confidenceScore: 0,
+              needsReview: true,
+              rawData: {
+                error: error instanceof Error ? error.message : "Unknown Store Sales Summary parser error",
+              },
+              columnNames: ["error"],
+            } satisfies RawImportLine,
+          ],
+          warnings: ["Store Sales Summary parser failed. Review raw text in the debug box."],
+          parser: "sunoco-store-sales-summary" as const,
+          parserAttempted: "Sunoco Store Sales Summary Report",
+          parseError: error instanceof Error ? error.message : "Unknown Store Sales Summary parser error",
+          rawTextPreview: rawTextPreview(parsed.text),
+        };
+      }
+    }
+
     const rawLines = lines
       .map((line, index) => parseDelimitedPdfLine(line, index + 1, fileName))
       .filter((line): line is RawImportLine => Boolean(line));
@@ -190,7 +414,13 @@ async function parsePdf(buffer: Buffer, fileName: string) {
       });
     }
 
-    return { rawLines, warnings };
+    return {
+      rawLines,
+      warnings,
+      parser: "pdf-parse" as const,
+      parserAttempted: "Generic PDF parser",
+      rawTextPreview: rawTextPreview(parsed.text),
+    };
   } catch (error) {
     return {
       rawLines: [
@@ -212,6 +442,10 @@ async function parsePdf(buffer: Buffer, fileName: string) {
         },
       ],
       warnings: ["PDF extraction failed. The row is marked Needs Review so it can be handled manually."],
+      parser: "pdf-parse" as const,
+      parserAttempted: "Generic PDF parser",
+      parseError: error instanceof Error ? error.message : "Unknown PDF parsing error",
+      rawTextPreview: "",
     };
   }
 }
@@ -300,12 +534,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Saved rule payload was not valid JSON." }, { status: 400 });
     }
   }
-  let parsed: { rawLines: RawImportLine[]; warnings: string[] };
+  let parsed: {
+    rawLines: RawImportLine[];
+    warnings: string[];
+    parser?: ParsedImportResult["parser"];
+    parserAttempted?: string;
+    parseError?: string;
+    rawTextPreview?: string;
+    reportType?: ParsedImportResult["reportType"];
+    reportStartDate?: string | null;
+    reportEndDate?: string | null;
+    departmentSalesRows?: ParsedImportResult["departmentSalesRows"];
+    storeSalesSummary?: ParsedImportResult["storeSalesSummary"];
+    fuelGradeSalesRows?: ParsedImportResult["fuelGradeSalesRows"];
+    tenderSalesRows?: ParsedImportResult["tenderSalesRows"];
+  };
   let parser: ParsedImportResult["parser"];
 
   if (extension === ".pdf") {
     parsed = await parsePdf(buffer, file.name);
-    parser = "pdf-parse";
+    parser = parsed.parser ?? "pdf-parse";
   } else if (extension === ".csv") {
     parsed = parseCsv(buffer);
     parser = "papaparse";
@@ -327,6 +575,16 @@ export async function POST(request: Request) {
     fileSize: file.size,
     fileHash,
     parser,
+    reportType: parsed.reportType,
+    reportStartDate: parsed.reportStartDate,
+    reportEndDate: parsed.reportEndDate,
+    parserAttempted: parsed.parserAttempted,
+    rawTextPreview: parsed.rawTextPreview,
+    parseError: parsed.parseError,
+    departmentSalesRows: parsed.departmentSalesRows,
+    storeSalesSummary: parsed.storeSalesSummary,
+    fuelGradeSalesRows: parsed.fuelGradeSalesRows,
+    tenderSalesRows: parsed.tenderSalesRows,
     warnings,
     rows,
   };
