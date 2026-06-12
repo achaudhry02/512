@@ -18,6 +18,7 @@ import type { ParsedImportResult, ParsedImportRow, ProductSale, SmartImportDesti
 import { expenseCategories, smartImportDestinations } from "@/lib/types";
 
 const acceptedTypes = ".pdf,.csv,.xlsx,.xls";
+type ManualReportType = "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
 
 function destinationLabel(destination: SmartImportDestination) {
   return destination.replaceAll("_", " ");
@@ -133,6 +134,9 @@ export default function SmartImportPage() {
   const { authLoading, data, saveSmartImport } = useCommandCenter();
   const [parsedImport, setParsedImport] = useState<ParsedImportResult | null>(null);
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [manualReportType, setManualReportType] = useState<ManualReportType>("department_sales");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,12 +146,7 @@ export default function SmartImportPage() {
     ? data.imports.some((record) => record.file_hash === parsedImport.fileHash)
     : false;
 
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
+  async function parseFile(file: File, options: { forceOcr?: boolean; manualReportType?: ManualReportType } = {}) {
     setUploading(true);
     setError(null);
     setMessage(null);
@@ -155,6 +154,12 @@ export default function SmartImportPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (options.forceOcr) {
+        formData.append("forceOcr", "true");
+      }
+      if (options.manualReportType) {
+        formData.append("manualReportType", options.manualReportType);
+      }
       formData.append(
         "rules",
         JSON.stringify({
@@ -179,7 +184,113 @@ export default function SmartImportPage() {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to parse file.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (pdfPreviewUrl) {
+      URL.revokeObjectURL(pdfPreviewUrl);
+    }
+    setSelectedFile(file);
+    setPdfPreviewUrl(file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? URL.createObjectURL(file) : null);
+
+    try {
+      await parseFile(file);
+    } finally {
       event.target.value = "";
+    }
+  }
+
+  async function reprocessWithOcr() {
+    if (!selectedFile) {
+      setError("Choose a PDF file before reprocessing with OCR.");
+      return;
+    }
+
+    await parseFile(selectedFile, {
+      forceOcr: true,
+      manualReportType,
+    });
+  }
+
+  function createManualRows() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (manualReportType === "department_sales") {
+      const manualRows = ["Department 1", "Department 2", "Department 3"].map<ParsedImportRow>((name, index) => ({
+        rowIndex: index + 1,
+        rowHash: `manual-department-${Date.now()}-${index}`,
+        date: today,
+        vendor: "Sunoco POS",
+        description: `Manual Department Sales Row ${index + 1}`,
+        productName: name,
+        skuUpc: "",
+        quantity: 0,
+        unitCost: 0,
+        unitRetailPrice: 0,
+        total: 0,
+        suggestedCategory: "Other",
+        originalSuggestedCategory: "Other",
+        confidenceScore: 0,
+        importDestination: "department_sales",
+        needsReview: true,
+        ignored: false,
+        rawData: {
+          report_type: "department_sales",
+          department_name: name,
+          gross_sales: 0,
+          item_count: 0,
+          refund_count: 0,
+          net_count: 0,
+          refund_amount: 0,
+          discount_amount: 0,
+          net_sales: 0,
+          percent_of_sales: 0,
+        },
+      }));
+      setRows(manualRows);
+      return;
+    }
+
+    if (manualReportType === "store_sales_summary") {
+      setRows([
+        {
+          rowIndex: 1,
+          rowHash: `manual-store-summary-${Date.now()}`,
+          date: today,
+          vendor: "Sunoco POS",
+          description: "Manual Store Sales Summary",
+          productName: "Store Sales Summary",
+          skuUpc: "",
+          quantity: 0,
+          unitCost: 0,
+          unitRetailPrice: 0,
+          total: 0,
+          suggestedCategory: "Other",
+          originalSuggestedCategory: "Other",
+          confidenceScore: 0,
+          importDestination: "store_sales_summaries",
+          needsReview: true,
+          ignored: false,
+          rawData: {
+            report_type: "store_sales_summary",
+            grand_total_store_sales: 0,
+            total_fuel_sales_volume: 0,
+            total_fuel_sales_dollars: 0,
+            fuel_discounts: 0,
+            total_non_fuel_sales: 0,
+            other_discounts: 0,
+            total_taxes_collected: 0,
+            total_sales: 0,
+            total_revenue: 0,
+            network_revenue: 0,
+          },
+        },
+      ]);
     }
   }
 
@@ -310,6 +421,97 @@ export default function SmartImportPage() {
           ) : null}
         </div>
       </section>
+
+      {pdfPreviewUrl || parsedImport?.fileType === "pdf" ? (
+        <section className="mb-8 grid gap-4 rounded-[2rem] border border-white/80 bg-white p-5 shadow-card lg:grid-cols-[1fr_0.8fr]">
+          <div>
+            <h3 className="text-xl font-black text-slate-950">PDF preview</h3>
+            {pdfPreviewUrl ? (
+              <iframe
+                className="mt-4 h-[520px] w-full rounded-3xl border border-slate-200"
+                src={pdfPreviewUrl}
+                title="Uploaded PDF preview"
+              />
+            ) : (
+              <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
+                Upload a PDF in this browser session to preview it here.
+              </p>
+            )}
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-slate-950">PDF recovery tools</h3>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              Sunoco report PDFs can be image-based or fixed-width. If text extraction is weak, run OCR and choose the expected report type.
+            </p>
+            <label className="mt-5 block">
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Manual report type</span>
+              <select
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
+                onChange={(event) => setManualReportType(event.target.value as ManualReportType)}
+                value={manualReportType}
+              >
+                <option value="department_sales">Department Sales</option>
+                <option value="store_sales_summary">Store Sales Summary</option>
+                <option value="invoice">Invoice</option>
+                <option value="bank_statement">Bank Statement</option>
+              </select>
+            </label>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!selectedFile || uploading}
+                onClick={reprocessWithOcr}
+                type="button"
+              >
+                {uploading ? "Reprocessing..." : "Reprocess with OCR"}
+              </button>
+              <button
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm"
+                onClick={createManualRows}
+                type="button"
+              >
+                Create manual entry table
+              </button>
+            </div>
+            <div className="mt-5 rounded-3xl bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Parser debug</p>
+              <dl className="mt-3 space-y-2 text-sm font-semibold text-slate-700">
+                <div className="flex justify-between gap-4">
+                  <dt>Extracted text length</dt>
+                  <dd>{parsedImport?.extractedTextLength ?? 0}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Parser used</dt>
+                  <dd>{parsedImport?.parser ?? "none"}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Extraction method</dt>
+                  <dd>{parsedImport?.extractionMethod ?? "none"}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Report type detected</dt>
+                  <dd>{parsedImport?.reportType ?? "none"}</dd>
+                </div>
+              </dl>
+              {parsedImport?.parseError ? (
+                <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                  Exact parsing error: {parsedImport.parseError}
+                </p>
+              ) : null}
+              {parsedImport?.rawTextPreview ? (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm font-black text-slate-800">
+                    First 1000 characters of extracted text
+                  </summary>
+                  <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                    {parsedImport.rawTextPreview.slice(0, 1000)}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {parsedImport?.reportType ? (
         <section className="mb-8 space-y-4 rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">

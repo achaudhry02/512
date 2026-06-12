@@ -361,7 +361,11 @@ export type ParsedImportResult = {
   reportStartDate?: string | null;
   reportEndDate?: string | null;
   parserAttempted?: string;
+  extractionMethod?: "pdf-text" | "ocr" | "manual";
+  extractedTextLength?: number;
   rawTextPreview?: string;
+  pdfPreviewDataUrl?: string;
+  manualReportType?: "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
   parseError?: string;
   departmentSalesRows?: ParsedDepartmentSaleRow[];
   storeSalesSummary?: ParsedStoreSalesSummary;

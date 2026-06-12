@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import Papa from "papaparse";
 import { readSheet } from "read-excel-file/node";
+import { recognize } from "tesseract.js";
 import {
   categorizeImportLine,
   parseDateLike,
@@ -166,8 +167,12 @@ function buildParsedRow(
   };
 }
 
-function rawTextPreview(text: string) {
-  return text.slice(0, 12000);
+function rawTextPreview(text: string, length = 12000) {
+  return text.slice(0, length);
+}
+
+function isUsefulPdfText(text: string) {
+  return text.replace(/\s+/g, "").length >= 80;
 }
 
 function departmentRowsToRawLines(text: string) {
@@ -208,6 +213,176 @@ function departmentRowsToRawLines(text: string) {
       columnNames: ["department_name", "gross_sales", "item_count", "refund_count", "net_count", "refund_amount", "discount_amount", "net_sales", "percent_of_sales"],
     })),
   };
+}
+
+function sunocoManualFallback(
+  fileName: string,
+  reportType: "department_sales" | "store_sales_summary" | "invoice" | "bank_statement" | undefined,
+  parseError: string,
+  rawText: string,
+) {
+  const baseRow: RawImportLine = {
+    rowIndex: 1,
+    date: null,
+    vendor: "Sunoco POS",
+    description: `${reportType ? reportType.replaceAll("_", " ") : "PDF"} parsing failed. Needs manual review.`,
+    productName: "",
+    skuUpc: "",
+    quantity: 0,
+    unitCost: 0,
+    unitRetailPrice: 0,
+    total: 0,
+    suggestedCategory: "Other",
+    importDestination: "needs_review",
+    confidenceScore: 0,
+    needsReview: true,
+    rawData: {
+      file_name: fileName,
+      parser_error: parseError,
+      text_preview: rawTextPreview(rawText, 1000),
+    },
+    columnNames: ["parser_error", "text_preview"],
+  };
+
+  const manualDepartmentRows: RawImportLine[] =
+    reportType === "department_sales"
+      ? ["Department 1", "Department 2", "Department 3"].map((departmentName, index) => ({
+          ...baseRow,
+          rowIndex: index + 1,
+          description: `Manual Department Sales Row ${index + 1}`,
+          productName: departmentName,
+          importDestination: "department_sales",
+          rawData: {
+            report_type: "department_sales",
+            department_name: departmentName,
+            gross_sales: 0,
+            item_count: 0,
+            refund_count: 0,
+            net_count: 0,
+            refund_amount: 0,
+            discount_amount: 0,
+            net_sales: 0,
+            percent_of_sales: 0,
+            parser_error: parseError,
+          },
+        }))
+      : [];
+
+  const manualStoreRows: RawImportLine[] =
+    reportType === "store_sales_summary"
+      ? [
+          {
+            ...baseRow,
+            description: "Manual Store Sales Summary",
+            productName: "Store Sales Summary",
+            importDestination: "store_sales_summaries",
+            rawData: {
+              report_type: "store_sales_summary",
+              grand_total_store_sales: 0,
+              total_fuel_sales_volume: 0,
+              total_fuel_sales_dollars: 0,
+              fuel_discounts: 0,
+              total_non_fuel_sales: 0,
+              other_discounts: 0,
+              total_taxes_collected: 0,
+              total_sales: 0,
+              total_revenue: 0,
+              network_revenue: 0,
+              parser_error: parseError,
+            },
+          },
+        ]
+      : [];
+
+  return {
+    rawLines: manualDepartmentRows.length ? manualDepartmentRows : manualStoreRows.length ? manualStoreRows : [baseRow],
+    warnings: ["PDF parsing and OCR did not produce a clean report. Use manual review or choose a report type and reprocess with OCR."],
+    parser: "pdf-parse" as const,
+    parserAttempted: "PDF text extraction + OCR fallback",
+    parseError,
+    rawTextPreview: rawTextPreview(rawText, 12000),
+    reportType: reportType === "department_sales" || reportType === "store_sales_summary" ? reportType : undefined,
+    extractionMethod: "manual" as const,
+    extractedTextLength: rawText.length,
+  };
+}
+
+function parseSunocoText(
+  text: string,
+  options: {
+    extractionMethod: "pdf-text" | "ocr";
+    manualReportType?: "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
+  },
+) {
+  const reportType = options.manualReportType;
+
+  if (reportType === "department_sales" || (!reportType && isDepartmentSalesReport(text))) {
+    return {
+      ...departmentRowsToRawLines(text),
+      warnings: [],
+      parser: "sunoco-department-sales" as const,
+      parserAttempted: options.extractionMethod === "ocr" ? "Sunoco Department Sales Report OCR parser" : "Sunoco Department Sales Report",
+      rawTextPreview: rawTextPreview(text),
+      extractionMethod: options.extractionMethod,
+      extractedTextLength: text.length,
+    };
+  }
+
+  if (reportType === "store_sales_summary" || (!reportType && isStoreSalesSummaryReport(text))) {
+    return {
+      ...storeSummaryToRawLines(text),
+      warnings: [],
+      parser: "sunoco-store-sales-summary" as const,
+      parserAttempted: options.extractionMethod === "ocr" ? "Sunoco Store Sales Summary OCR parser" : "Sunoco Store Sales Summary Report",
+      rawTextPreview: rawTextPreview(text),
+      extractionMethod: options.extractionMethod,
+      extractedTextLength: text.length,
+    };
+  }
+
+  return null;
+}
+
+async function extractPdfText(buffer: Buffer) {
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const parsed = await parser.getText({
+      cellSeparator: " ",
+      itemJoiner: " ",
+      lineEnforce: true,
+      pageJoiner: "\n",
+    });
+    return parsed.text;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+async function ocrPdf(buffer: Buffer) {
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const screenshots = await parser.getScreenshot({
+      imageDataUrl: true,
+      imageBuffer: false,
+      scale: 2,
+    });
+    const texts: string[] = [];
+
+    for (const page of screenshots.pages) {
+      if (!page.dataUrl) {
+        continue;
+      }
+
+      const result = await recognize(page.dataUrl, "eng");
+      texts.push(result.data.text);
+    }
+
+    return texts.join("\n");
+  } finally {
+    await parser.destroy();
+  }
 }
 
 function storeSummaryToRawLines(text: string) {
@@ -295,103 +470,70 @@ function storeSummaryToRawLines(text: string) {
   };
 }
 
-async function parsePdf(buffer: Buffer, fileName: string) {
+async function parsePdf(
+  buffer: Buffer,
+  fileName: string,
+  options: {
+    forceOcr?: boolean;
+    manualReportType?: "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
+  } = {},
+) {
   const warnings: string[] = [];
+  let extractedText = "";
+  let textParseError = "";
 
   try {
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: buffer });
-    const parsed = await parser.getText();
-    await parser.destroy();
-    const lines = parsed.text
+    if (!options.forceOcr) {
+      extractedText = await extractPdfText(buffer);
+      const sunocoResult = parseSunocoText(extractedText, {
+        extractionMethod: "pdf-text",
+        manualReportType: options.manualReportType,
+      });
+      if (sunocoResult) {
+        return sunocoResult;
+      }
+    }
+  } catch (error) {
+    textParseError = error instanceof Error ? error.message : "Unknown PDF text extraction error";
+  }
+
+  const shouldTryOcr = options.forceOcr || !isUsefulPdfText(extractedText) || Boolean(textParseError);
+
+  if (shouldTryOcr) {
+    try {
+      const ocrText = await ocrPdf(buffer);
+      const sunocoResult = parseSunocoText(ocrText, {
+        extractionMethod: "ocr",
+        manualReportType: options.manualReportType,
+      });
+      if (sunocoResult) {
+        return {
+          ...sunocoResult,
+          warnings: [
+            ...(textParseError ? [`PDF text extraction failed: ${textParseError}`] : []),
+            ...sunocoResult.warnings,
+          ],
+        };
+      }
+
+      extractedText = extractedText || ocrText;
+      warnings.push("OCR completed, but no Sunoco report structure was detected.");
+    } catch (error) {
+      const ocrError = error instanceof Error ? error.message : "Unknown OCR error";
+      return sunocoManualFallback(
+        fileName,
+        options.manualReportType,
+        [textParseError, ocrError].filter(Boolean).join(" | ") || "PDF text extraction and OCR failed.",
+        extractedText,
+      );
+    }
+  }
+
+  try {
+    const lines = extractedText
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-
-    if (isDepartmentSalesReport(parsed.text)) {
-      try {
-        return {
-          ...departmentRowsToRawLines(parsed.text),
-          warnings,
-          parser: "sunoco-department-sales" as const,
-          parserAttempted: "Sunoco Department Sales Report",
-          rawTextPreview: rawTextPreview(parsed.text),
-        };
-      } catch (error) {
-        return {
-          rawLines: [
-            {
-              rowIndex: 1,
-              date: null,
-              vendor: "Sunoco POS",
-              description: "Department Sales Report parsing failed. Needs Review.",
-              productName: "",
-              skuUpc: "",
-              quantity: 0,
-              unitCost: 0,
-              unitRetailPrice: 0,
-              total: 0,
-              suggestedCategory: "Other",
-              importDestination: "needs_review",
-              confidenceScore: 0,
-              needsReview: true,
-              rawData: {
-                error: error instanceof Error ? error.message : "Unknown Department Sales parser error",
-              },
-              columnNames: ["error"],
-            } satisfies RawImportLine,
-          ],
-          warnings: ["Department Sales Report parser failed. Review raw text in the debug box."],
-          parser: "sunoco-department-sales" as const,
-          parserAttempted: "Sunoco Department Sales Report",
-          parseError: error instanceof Error ? error.message : "Unknown Department Sales parser error",
-          rawTextPreview: rawTextPreview(parsed.text),
-        };
-      }
-    }
-
-    if (isStoreSalesSummaryReport(parsed.text)) {
-      try {
-        return {
-          ...storeSummaryToRawLines(parsed.text),
-          warnings,
-          parser: "sunoco-store-sales-summary" as const,
-          parserAttempted: "Sunoco Store Sales Summary Report",
-          rawTextPreview: rawTextPreview(parsed.text),
-        };
-      } catch (error) {
-        return {
-          rawLines: [
-            {
-              rowIndex: 1,
-              date: null,
-              vendor: "Sunoco POS",
-              description: "Store Sales Summary Report parsing failed. Needs Review.",
-              productName: "",
-              skuUpc: "",
-              quantity: 0,
-              unitCost: 0,
-              unitRetailPrice: 0,
-              total: 0,
-              suggestedCategory: "Other",
-              importDestination: "needs_review",
-              confidenceScore: 0,
-              needsReview: true,
-              rawData: {
-                error: error instanceof Error ? error.message : "Unknown Store Sales Summary parser error",
-              },
-              columnNames: ["error"],
-            } satisfies RawImportLine,
-          ],
-          warnings: ["Store Sales Summary parser failed. Review raw text in the debug box."],
-          parser: "sunoco-store-sales-summary" as const,
-          parserAttempted: "Sunoco Store Sales Summary Report",
-          parseError: error instanceof Error ? error.message : "Unknown Store Sales Summary parser error",
-          rawTextPreview: rawTextPreview(parsed.text),
-        };
-      }
-    }
-
     const rawLines = lines
       .map((line, index) => parseDelimitedPdfLine(line, index + 1, fileName))
       .filter((line): line is RawImportLine => Boolean(line));
@@ -402,14 +544,14 @@ async function parsePdf(buffer: Buffer, fileName: string) {
         rowIndex: 1,
         date: null,
         vendor: inferVendorFromFileName(fileName),
-        description: parsed.text.slice(0, 500) || "Unclear PDF extraction",
+        description: extractedText.slice(0, 500) || "Unclear PDF extraction",
         productName: "",
         skuUpc: "",
         quantity: 0,
         unitCost: 0,
         unitRetailPrice: 0,
         total: 0,
-        rawData: { text_preview: parsed.text.slice(0, 1000) },
+        rawData: { text_preview: extractedText.slice(0, 1000) },
         columnNames: ["text_preview"],
       });
     }
@@ -419,34 +561,17 @@ async function parsePdf(buffer: Buffer, fileName: string) {
       warnings,
       parser: "pdf-parse" as const,
       parserAttempted: "Generic PDF parser",
-      rawTextPreview: rawTextPreview(parsed.text),
+      rawTextPreview: rawTextPreview(extractedText),
+      extractionMethod: shouldTryOcr ? ("ocr" as const) : ("pdf-text" as const),
+      extractedTextLength: extractedText.length,
     };
   } catch (error) {
-    return {
-      rawLines: [
-        {
-          rowIndex: 1,
-          date: null,
-          vendor: inferVendorFromFileName(fileName),
-          description: "PDF extraction failed. Needs Review.",
-          productName: "",
-          skuUpc: "",
-          quantity: 0,
-          unitCost: 0,
-          unitRetailPrice: 0,
-          total: 0,
-          rawData: {
-            error: error instanceof Error ? error.message : "Unknown PDF parsing error",
-          },
-          columnNames: ["error"],
-        },
-      ],
-      warnings: ["PDF extraction failed. The row is marked Needs Review so it can be handled manually."],
-      parser: "pdf-parse" as const,
-      parserAttempted: "Generic PDF parser",
-      parseError: error instanceof Error ? error.message : "Unknown PDF parsing error",
-      rawTextPreview: "",
-    };
+    return sunocoManualFallback(
+      fileName,
+      options.manualReportType,
+      error instanceof Error ? error.message : "Unknown PDF parsing error",
+      extractedText,
+    );
   }
 }
 
@@ -513,6 +638,15 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file");
   const rules = formData.get("rules");
+  const forceOcr = formData.get("forceOcr") === "true";
+  const manualReportTypeValue = formData.get("manualReportType");
+  const manualReportType =
+    manualReportTypeValue === "department_sales" ||
+    manualReportTypeValue === "store_sales_summary" ||
+    manualReportTypeValue === "invoice" ||
+    manualReportTypeValue === "bank_statement"
+      ? manualReportTypeValue
+      : undefined;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Upload a PDF, Excel, or CSV file." }, { status: 400 });
@@ -539,6 +673,8 @@ export async function POST(request: Request) {
     warnings: string[];
     parser?: ParsedImportResult["parser"];
     parserAttempted?: string;
+    extractionMethod?: ParsedImportResult["extractionMethod"];
+    extractedTextLength?: number;
     parseError?: string;
     rawTextPreview?: string;
     reportType?: ParsedImportResult["reportType"];
@@ -552,7 +688,7 @@ export async function POST(request: Request) {
   let parser: ParsedImportResult["parser"];
 
   if (extension === ".pdf") {
-    parsed = await parsePdf(buffer, file.name);
+    parsed = await parsePdf(buffer, file.name, { forceOcr, manualReportType });
     parser = parsed.parser ?? "pdf-parse";
   } else if (extension === ".csv") {
     parsed = parseCsv(buffer);
@@ -579,6 +715,8 @@ export async function POST(request: Request) {
     reportStartDate: parsed.reportStartDate,
     reportEndDate: parsed.reportEndDate,
     parserAttempted: parsed.parserAttempted,
+    extractionMethod: parsed.extractionMethod,
+    extractedTextLength: parsed.extractedTextLength,
     rawTextPreview: parsed.rawTextPreview,
     parseError: parsed.parseError,
     departmentSalesRows: parsed.departmentSalesRows,
