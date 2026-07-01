@@ -36,6 +36,9 @@ type EntryManagerProps<T extends TableName> = {
   defaultValues: Record<string, string | number>;
   dateAccessor?: (row: TableRowMap[T]) => string;
   helper?: string;
+  transformPayload?: (
+    payload: Record<string, string | number | null>,
+  ) => Record<string, string | number | null>;
 };
 
 function toFormValues(values: Record<string, unknown>) {
@@ -53,6 +56,7 @@ export function EntryManager<T extends TableName>({
   helper,
   table,
   title,
+  transformPayload,
 }: EntryManagerProps<T>) {
   const { data, deleteEntry, loading, saveEntry } = useCommandCenter();
   const rows = data[table] as TableRowMap[T][];
@@ -90,7 +94,7 @@ export function EntryManager<T extends TableName>({
     setSubmitting(true);
     setActionError(null);
 
-    const payload = fields.reduce<Record<string, string | number | null>>((values, field) => {
+    const rawPayload = fields.reduce<Record<string, string | number | null>>((values, field) => {
       const value = formValues[field.name] ?? "";
 
       if (field.type === "number") {
@@ -103,6 +107,7 @@ export function EntryManager<T extends TableName>({
 
       return values;
     }, {});
+    const payload = transformPayload ? transformPayload(rawPayload) : rawPayload;
 
     try {
       await saveEntry(table, payload as never, editingId);

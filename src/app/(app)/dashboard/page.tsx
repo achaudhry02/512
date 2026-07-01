@@ -21,6 +21,8 @@ import {
   Gauge,
   Fuel,
   ReceiptText,
+  PackageSearch,
+  ShoppingBasket,
   Sparkles,
   Target,
   Ticket,
@@ -39,6 +41,8 @@ import {
   currency,
   dailyChart,
   expensesByCategory,
+  monthEndIso,
+  monthStartIso,
   todayIso,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
@@ -77,7 +81,7 @@ export default function DashboardPage() {
   const { data, loading, store } = useCommandCenter();
   const today = todayIso();
   const todaySummary = aggregateData(data, today, today);
-  const monthSummary = aggregateData(data);
+  const monthSummary = aggregateData(data, monthStartIso(), monthEndIso());
   const categorySummary = bestWorstCategories(data.daily_sales);
   const expenses = Object.entries(expensesByCategory(monthSummary.expenses)).map(([name, value]) => ({
     name,
@@ -85,6 +89,15 @@ export default function DashboardPage() {
   }));
   const trend = dailyChart(data);
   const profitLeaks = analyzeProfitLeaks(data).slice(0, 6);
+  const todaySale = data.daily_sales.find((sale) => sale.date === today);
+  const lowStock = data.products.filter((product) => product.quantity_on_hand <= product.reorder_level);
+  const bestSellingItems = Object.values(data.product_sales.reduce<Record<string, { name: string; quantity: number; sales: number }>>((items, sale) => {
+    const current = items[sale.product_name] ?? { name: sale.product_name, quantity: 0, sales: 0 };
+    current.quantity += sale.quantity_sold;
+    current.sales += sale.gross_sales;
+    items[sale.product_name] = current;
+    return items;
+  }, {})).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
 
   if (loading) {
     return <LoadingState />;
@@ -228,11 +241,11 @@ export default function DashboardPage() {
         />
         <StatCard
           accent="emerald"
-          helper="Fuel, lottery, deli, and estimated inside margin"
+          helper="Fuel, lottery, deli, and estimated inside margin today"
           icon={TrendingUp}
           label="Gross profit"
-          trend="MTD"
-          value={monthSummary.grossProfit}
+          trend="Today"
+          value={todaySummary.grossProfit}
         />
         <StatCard
           accent={monthSummary.netProfit >= 0 ? "emerald" : "rose"}
@@ -240,7 +253,7 @@ export default function DashboardPage() {
           icon={CircleDollarSign}
           label="Net profit estimate"
           trend={`${monthSummary.profitMargin.toFixed(1)}%`}
-          value={monthSummary.netProfit}
+          value={todaySummary.netProfit}
         />
         <StatCard
           accent="slate"
@@ -283,6 +296,40 @@ export default function DashboardPage() {
           value={monthSummary.payrollCost}
         />
       </div>
+
+      <section className="mt-8 grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <div className="mb-4 flex items-center justify-between">
+            <div><h3 className="text-xl font-black text-slate-950">Today&apos;s departments</h3><p className="text-sm text-slate-500">Sales and volume from the latest closeout.</p></div>
+            <ShoppingBasket className="h-5 w-5 text-cyan-700" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["Grocery sales", currency(todaySale?.grocery_sales ?? 0)],
+              ["Deli / hot food", currency((todaySale?.deli_sales ?? 0) + (todaySale?.hot_food_sales ?? 0))],
+              ["Fuel gallons", `${(todaySale?.fuel_gallons_sold ?? 0).toLocaleString()} gal`],
+              ["Lottery sales", currency(todaySale?.lottery_sales ?? 0)],
+              ["Beer / cigarettes", currency((todaySale?.beer_sales ?? 0) + (todaySale?.cigarette_sales ?? 0))],
+              ["Cash / card", `${currency(todaySale?.cash_total ?? 0)} / ${currency(todaySale?.card_total ?? 0)}`],
+            ].map(([label, value]) => <div className="border-b border-slate-100 py-3" key={label}><p className="text-xs font-black uppercase text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>)}
+          </div>
+        </div>
+
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+            <div className="mb-4 flex items-center justify-between"><h3 className="font-black text-slate-950">Low-stock alerts</h3><PackageSearch className="h-5 w-5 text-red-600" /></div>
+            <div className="space-y-3">
+              {lowStock.length ? lowStock.slice(0, 5).map((product) => <div className="flex items-center justify-between gap-3" key={product.id}><div><p className="text-sm font-bold text-slate-800">{product.name}</p><p className="text-xs text-slate-500">Reorder at {product.reorder_level}</p></div><span className="rounded-full bg-red-100 px-2 py-1 text-xs font-black text-red-700">{product.quantity_on_hand} left</span></div>) : <p className="text-sm text-slate-500">No low-stock products.</p>}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+            <h3 className="mb-4 font-black text-slate-950">Best-selling items</h3>
+            <div className="space-y-3">
+              {bestSellingItems.length ? bestSellingItems.map((item, index) => <div className="flex items-center justify-between gap-3" key={item.name}><div className="flex items-center gap-3"><span className="text-xs font-black text-slate-400">{index + 1}</span><p className="text-sm font-bold text-slate-800">{item.name}</p></div><div className="text-right"><p className="text-sm font-black text-slate-950">{item.quantity}</p><p className="text-xs text-slate-500">{currency(item.sales)}</p></div></div>) : <p className="text-sm text-slate-500">Import product sales to rank items.</p>}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="mt-8 grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
         <section className="rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">

@@ -13,11 +13,14 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
+  BulkMonthlyEntry,
   CommandCenterData,
   ImportRecord,
   ImportRow,
   ParsedImportResult,
   ParsedImportRow,
+  ResourceRowMap,
+  ResourceTableName,
   Store,
   TableName,
   TableRowMap,
@@ -49,6 +52,8 @@ const smartImportTableNames = [
   "product_rules",
 ] as const;
 
+const resourceTableNames: ResourceTableName[] = ["products", "vendors", "employees"];
+
 const emptyData: CommandCenterData = {
   daily_sales: [],
   expenses: [],
@@ -59,6 +64,7 @@ const emptyData: CommandCenterData = {
   imports: [],
   import_rows: [],
   vendors: [],
+  employees: [],
   product_categories: [],
   products: [],
   product_sales: [],
@@ -76,6 +82,11 @@ type EntryPayload<T extends TableName> = Omit<
   "id" | "user_id" | "store_id" | "created_at" | "updated_at"
 >;
 
+type ResourcePayload<T extends ResourceTableName> = Omit<
+  ResourceRowMap[T],
+  "id" | "user_id" | "store_id" | "created_at" | "updated_at"
+>;
+
 type CommandCenterContextValue = {
   user: User | null;
   profile: UserProfile | null;
@@ -90,7 +101,14 @@ type CommandCenterContextValue = {
     payload: EntryPayload<T>,
     id?: string,
   ) => Promise<void>;
+  saveBulkMonthlyEntries: (entries: BulkMonthlyEntry[], overwrite: boolean) => Promise<void>;
   deleteEntry: <T extends TableName>(table: T, id: string) => Promise<void>;
+  saveResource: <T extends ResourceTableName>(
+    table: T,
+    payload: ResourcePayload<T>,
+    id?: string,
+  ) => Promise<void>;
+  deleteResource: <T extends ResourceTableName>(table: T, id: string) => Promise<void>;
   saveSmartImport: (parsedImport: ParsedImportResult, rows: ParsedImportRow[]) => Promise<void>;
   updateProfile: (payload: Partial<Pick<UserProfile, "full_name">>) => Promise<void>;
   updateStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
@@ -327,6 +345,26 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         for (const [table, rows] of smartImportResults) {
           nextData[table] = rows as never;
         }
+
+        const resourceResults = await Promise.all(
+          resourceTableNames
+            .filter((table) => table === "employees")
+            .map(async (table) => {
+              const { data: rows, error: tableError } = await supabase
+                .from(table)
+                .select("*")
+                .eq("user_id", activeUser.id)
+                .eq("store_id", activeStore.id)
+                .order("name");
+
+              if (tableError) throw tableError;
+              return [table, rows ?? []] as const;
+            }),
+        );
+
+        for (const [table, rows] of resourceResults) {
+          nextData[table] = rows as never;
+        }
       }
 
       setProfile(profileRow as UserProfile);
@@ -432,6 +470,181 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [refresh, store, user],
+  );
+
+  const saveBulkMonthlyEntries = useCallback(
+    async (entries: BulkMonthlyEntry[], overwrite: boolean) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user || !store) {
+        throw new Error("You must be signed in before saving bulk entries.");
+      }
+
+      const dates = entries.map((entry) => entry.date);
+      const duplicateInputDates = dates.filter((date, index) => dates.indexOf(date) !== index);
+      if (duplicateInputDates.length) {
+        throw new Error(`Duplicate dates found in this month: ${Array.from(new Set(duplicateInputDates)).sort().join(", ")}.`);
+      }
+      const existingDates = new Set(
+        data.daily_sales
+          .filter((sale) => dates.includes(sale.date))
+          .map((sale) => sale.date),
+      );
+
+      if (existingDates.size && !overwrite) {
+        throw new Error(`Duplicate dates found: ${Array.from(existingDates).sort().join(", ")}. Enable overwrite to replace them.`);
+      }
+
+      const dailyRows = entries.map((entry) => {
+        const totalSales =
+          entry.grocery_sales +
+          entry.deli_sales +
+          entry.hot_food_sales +
+          entry.lottery_sales +
+          entry.beer_sales +
+          entry.cigarette_sales +
+          entry.other_sales;
+
+        return {
+          user_id: user.id,
+          store_id: store.id,
+          date: entry.date,
+          inside_sales: totalSales,
+          fuel_gallons_sold: entry.fuel_gallons_sold,
+          fuel_retail_price: entry.fuel_price_per_gallon,
+          fuel_cost_per_gallon: entry.fuel_cost_per_gallon,
+          lottery_sales: entry.lottery_sales,
+          lottery_payouts: 0,
+          deli_sales: entry.deli_sales,
+          hot_food_sales: entry.hot_food_sales,
+          cigarette_sales: entry.cigarette_sales,
+          beer_sales: entry.beer_sales,
+          grocery_sales: entry.grocery_sales,
+          other_sales: entry.other_sales,
+          cash_total: entry.cash_total,
+          card_total: entry.card_total,
+          expenses: entry.expenses,
+          payroll: entry.payroll,
+          notes: entry.notes,
+        };
+      });
+
+      const { error: salesError } = overwrite
+        ? await supabase.from("daily_sales").upsert(dailyRows, { onConflict: "user_id,store_id,date" })
+        : await supabase.from("daily_sales").insert(dailyRows);
+
+      if (salesError) {
+        setError(salesError.message);
+        throw salesError;
+      }
+
+      if (overwrite && dates.length) {
+        const { error: expenseDeleteError } = await supabase
+          .from("expenses")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("store_id", store.id)
+          .in("date", dates)
+          .like("notes", "Bulk monthly entry%");
+
+        if (expenseDeleteError) {
+          setError(expenseDeleteError.message);
+          throw expenseDeleteError;
+        }
+
+        const { error: payrollDeleteError } = await supabase
+          .from("payroll_entries")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("store_id", store.id)
+          .in("date_range_start", dates)
+          .like("notes", "Bulk monthly entry%");
+
+        if (payrollDeleteError) {
+          setError(payrollDeleteError.message);
+          throw payrollDeleteError;
+        }
+      }
+
+      const expenseRows = entries
+        .filter((entry) => entry.expenses > 0)
+        .map((entry) => ({
+          user_id: user.id,
+          store_id: store.id,
+          date: entry.date,
+          vendor_name: "Bulk monthly entry",
+          category: "Other",
+          amount: entry.expenses,
+          payment_method: "Other",
+          notes: `Bulk monthly entry expenses for ${entry.date}`,
+        }));
+
+      if (expenseRows.length) {
+        const { error: expenseError } = await supabase.from("expenses").insert(expenseRows);
+        if (expenseError) {
+          setError(expenseError.message);
+          throw expenseError;
+        }
+      }
+
+      const payrollRows = entries
+        .filter((entry) => entry.payroll > 0)
+        .map((entry) => ({
+          user_id: user.id,
+          store_id: store.id,
+          employee_name: "Bulk monthly payroll",
+          date_range_start: entry.date,
+          date_range_end: entry.date,
+          hours_worked: 1,
+          hourly_rate: entry.payroll,
+          notes: `Bulk monthly entry payroll for ${entry.date}`,
+        }));
+
+      if (payrollRows.length) {
+        const { error: payrollError } = await supabase.from("payroll_entries").insert(payrollRows);
+        if (payrollError) {
+          setError(payrollError.message);
+          throw payrollError;
+        }
+      }
+
+      await refresh();
+    },
+    [data.daily_sales, refresh, store, user],
+  );
+
+  const saveResource = useCallback(
+    async <T extends ResourceTableName>(table: T, payload: ResourcePayload<T>, id?: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user || !store) {
+        throw new Error("You must be signed in before saving records.");
+      }
+
+      const dbPayload = { ...payload, user_id: user.id, store_id: store.id };
+      const result = id
+        ? await supabase.from(table).update(dbPayload).eq("id", id).eq("user_id", user.id)
+        : await supabase.from(table).insert(dbPayload);
+
+      if (result.error) {
+        setError(result.error.message);
+        throw result.error;
+      }
+      await refresh();
+    },
+    [refresh, store, user],
+  );
+
+  const deleteResource = useCallback(
+    async <T extends ResourceTableName>(table: T, id: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) throw new Error("You must be signed in before deleting records.");
+      const { error: deleteError } = await supabase.from(table).delete().eq("id", id).eq("user_id", user.id);
+      if (deleteError) {
+        setError(deleteError.message);
+        throw deleteError;
+      }
+      await refresh();
+    },
+    [refresh, user],
   );
 
   const deleteEntry = useCallback(
@@ -1018,7 +1231,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       error,
       refresh,
       saveEntry,
+      saveBulkMonthlyEntries,
       deleteEntry,
+      saveResource,
+      deleteResource,
       saveSmartImport,
       updateProfile,
       updateStore,
@@ -1026,12 +1242,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [
       data,
       deleteEntry,
+      deleteResource,
       error,
       authLoading,
       loading,
       profile,
       refresh,
       saveEntry,
+      saveResource,
+      saveBulkMonthlyEntries,
       saveSmartImport,
       store,
       updateProfile,

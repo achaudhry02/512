@@ -32,14 +32,59 @@ create table if not exists public.daily_sales (
   lottery_sales numeric(12,2) not null default 0,
   lottery_payouts numeric(12,2) not null default 0,
   deli_sales numeric(12,2) not null default 0,
+  hot_food_sales numeric(12,2) not null default 0,
   cigarette_sales numeric(12,2) not null default 0,
   beer_sales numeric(12,2) not null default 0,
   grocery_sales numeric(12,2) not null default 0,
   other_sales numeric(12,2) not null default 0,
+  cash_total numeric(12,2) not null default 0,
+  card_total numeric(12,2) not null default 0,
+  expenses numeric(12,2) not null default 0,
+  payroll numeric(12,2) not null default 0,
   notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  fuel_margin numeric generated always as (fuel_retail_price - fuel_cost_per_gallon) stored,
+  fuel_profit numeric generated always as (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) stored,
+  total_sales numeric generated always as (grocery_sales + deli_sales + hot_food_sales + lottery_sales + beer_sales + cigarette_sales + other_sales) stored,
+  gross_profit numeric generated always as (
+    (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) +
+    (lottery_sales * 0.06) +
+    ((deli_sales + hot_food_sales) * 0.55) +
+    ((grocery_sales + beer_sales + cigarette_sales + other_sales) * 0.28)
+  ) stored,
+  net_profit_estimate numeric generated always as (
+    (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) +
+    (lottery_sales * 0.06) +
+    ((deli_sales + hot_food_sales) * 0.55) +
+    ((grocery_sales + beer_sales + cigarette_sales + other_sales) * 0.28) -
+    expenses -
+    payroll
+  ) stored
 );
+
+alter table public.daily_sales add column if not exists hot_food_sales numeric(12,2) not null default 0;
+alter table public.daily_sales add column if not exists cash_total numeric(12,2) not null default 0;
+alter table public.daily_sales add column if not exists card_total numeric(12,2) not null default 0;
+alter table public.daily_sales add column if not exists expenses numeric(12,2) not null default 0;
+alter table public.daily_sales add column if not exists payroll numeric(12,2) not null default 0;
+alter table public.daily_sales add column if not exists fuel_margin numeric generated always as (fuel_retail_price - fuel_cost_per_gallon) stored;
+alter table public.daily_sales add column if not exists fuel_profit numeric generated always as (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) stored;
+alter table public.daily_sales add column if not exists total_sales numeric generated always as (grocery_sales + deli_sales + hot_food_sales + lottery_sales + beer_sales + cigarette_sales + other_sales) stored;
+alter table public.daily_sales add column if not exists gross_profit numeric generated always as (
+  (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) +
+  (lottery_sales * 0.06) +
+  ((deli_sales + hot_food_sales) * 0.55) +
+  ((grocery_sales + beer_sales + cigarette_sales + other_sales) * 0.28)
+) stored;
+alter table public.daily_sales add column if not exists net_profit_estimate numeric generated always as (
+  (fuel_gallons_sold * (fuel_retail_price - fuel_cost_per_gallon)) +
+  (lottery_sales * 0.06) +
+  ((deli_sales + hot_food_sales) * 0.55) +
+  ((grocery_sales + beer_sales + cigarette_sales + other_sales) * 0.28) -
+  expenses -
+  payroll
+) stored;
 
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
@@ -83,6 +128,8 @@ alter table public.expenses drop constraint if exists expenses_category_check;
 alter table public.expenses add constraint expenses_category_check check (
   category in (
     'Inventory',
+    'Inventory invoice',
+    'Vendor invoice',
     'Payroll',
     'Rent/Mortgage',
     'Utilities',
@@ -221,6 +268,13 @@ create table if not exists public.vendors (
   unique (user_id, store_id, normalized_name)
 );
 
+alter table public.vendors add column if not exists contact_person text;
+alter table public.vendors add column if not exists phone text;
+alter table public.vendors add column if not exists email text;
+alter table public.vendors add column if not exists products_supplied text;
+alter table public.vendors add column if not exists average_weekly_spend numeric(12,2) not null default 0;
+alter table public.vendors add column if not exists notes text;
+
 create table if not exists public.product_categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -243,6 +297,26 @@ create table if not exists public.products (
   category text not null default 'Other',
   unit_cost numeric(12,4) not null default 0,
   unit_retail_price numeric(12,4) not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, name)
+);
+
+alter table public.products add column if not exists quantity_on_hand numeric(12,3) not null default 0;
+alter table public.products add column if not exists reorder_level numeric(12,3) not null default 0;
+alter table public.products add column if not exists notes text;
+
+create table if not exists public.employees (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  name text not null,
+  role text not null default 'Employee/Cashier' check (role in ('Owner/Admin', 'Manager', 'Employee/Cashier')),
+  hourly_rate numeric(12,2) not null default 0 check (hourly_rate >= 0),
+  phone text,
+  email text,
+  active boolean not null default true,
+  notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, store_id, name)
@@ -386,6 +460,7 @@ create table if not exists public.product_rules (
 
 create index if not exists stores_user_id_idx on public.stores(user_id);
 create index if not exists daily_sales_user_store_date_idx on public.daily_sales(user_id, store_id, date desc);
+create unique index if not exists daily_sales_user_store_date_unique_idx on public.daily_sales(user_id, store_id, date);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
 create index if not exists fuel_entries_user_store_date_idx on public.fuel_entries(user_id, store_id, date desc);
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
@@ -397,6 +472,8 @@ create index if not exists vendors_user_store_name_idx on public.vendors(user_id
 create index if not exists product_categories_user_store_name_idx on public.product_categories(user_id, store_id, name);
 create index if not exists products_user_store_name_idx on public.products(user_id, store_id, name);
 create index if not exists products_user_store_sku_idx on public.products(user_id, store_id, sku_upc);
+create index if not exists products_user_store_stock_idx on public.products(user_id, store_id, quantity_on_hand, reorder_level);
+create index if not exists employees_user_store_name_idx on public.employees(user_id, store_id, name);
 create index if not exists product_sales_user_store_date_idx on public.product_sales(user_id, store_id, date desc);
 create index if not exists product_sales_user_store_category_idx on public.product_sales(user_id, store_id, category);
 create index if not exists department_sales_user_store_report_idx on public.department_sales(user_id, store_id, report_end_date desc);
@@ -483,6 +560,11 @@ create trigger set_products_updated_at
 before update on public.products
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_employees_updated_at on public.employees;
+create trigger set_employees_updated_at
+before update on public.employees
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_product_sales_updated_at on public.product_sales;
 create trigger set_product_sales_updated_at
 before update on public.product_sales
@@ -516,6 +598,7 @@ alter table public.import_rows enable row level security;
 alter table public.vendors enable row level security;
 alter table public.product_categories enable row level security;
 alter table public.products enable row level security;
+alter table public.employees enable row level security;
 alter table public.product_sales enable row level security;
 alter table public.department_sales enable row level security;
 alter table public.store_sales_summaries enable row level security;
@@ -625,6 +708,19 @@ create policy "Users can update their own products" on public.products
 for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 drop policy if exists "Users can delete their own products" on public.products;
 create policy "Users can delete their own products" on public.products
+for delete using (user_id = auth.uid());
+
+drop policy if exists "Users can select their own employees" on public.employees;
+create policy "Users can select their own employees" on public.employees
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own employees" on public.employees;
+create policy "Users can insert their own employees" on public.employees
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own employees" on public.employees;
+create policy "Users can update their own employees" on public.employees
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own employees" on public.employees;
+create policy "Users can delete their own employees" on public.employees
 for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own product sales" on public.product_sales;

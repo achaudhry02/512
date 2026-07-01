@@ -2,6 +2,7 @@
 
 import { Download } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import {
@@ -30,6 +31,11 @@ export default function ReportsPage() {
     [data, endDate, startDate],
   );
   const expenseMap = expensesByCategory(report.expenses);
+  const inventoryValue = data.products.reduce((total, product) => total + product.quantity_on_hand * product.unit_cost, 0);
+  const vendorSpend = Object.entries(report.expenses.reduce<Record<string, number>>((vendors, expense) => {
+    vendors[expense.vendor_name] = (vendors[expense.vendor_name] ?? 0) + expense.amount;
+    return vendors;
+  }, {})).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
   function exportCsv() {
     const rows: (string | number)[][] = [
@@ -45,6 +51,7 @@ export default function ReportsPage() {
       ["Deli sales", report.deliSales],
       ["Payroll", report.payrollCost],
       ["Net profit", report.netProfit],
+      ["Inventory value", inventoryValue],
       ["Profit margin", `${report.profitMargin.toFixed(2)}%`],
       [],
       ["Expenses by category", "Amount"],
@@ -103,6 +110,7 @@ export default function ReportsPage() {
         <StatCard label="Deli sales" value={report.deliSales} accent="emerald" />
         <StatCard label="Payroll" value={report.payrollCost} accent="rose" />
         <StatCard label="Net profit" value={report.netProfit} accent={report.netProfit >= 0 ? "emerald" : "rose"} />
+        <StatCard label="Inventory value" value={inventoryValue} accent="slate" />
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>
@@ -145,6 +153,24 @@ export default function ReportsPage() {
           </table>
         </div>
       </section>
+
+      <div className="mt-8 grid gap-6 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Vendor spend</h3>
+          <p className="mt-1 text-sm text-slate-500">Invoice and expense totals for the selected date range.</p>
+          <div className="mt-5 h-72">
+            {vendorSpend.length ? <ResponsiveContainer height="100%" width="100%"><BarChart data={vendorSpend}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="value" fill="#0891b2" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No vendor expenses in this range.</p>}
+          </div>
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Inventory value</h3>
+          <p className="mt-1 text-sm text-slate-500">Current stock valued at item cost.</p>
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-sm"><thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><tr><th className="py-3">Product</th><th className="py-3 text-right">Quantity</th><th className="py-3 text-right">Value</th></tr></thead><tbody className="divide-y divide-slate-100">{data.products.slice(0, 8).map((product) => <tr key={product.id}><td className="py-3 font-bold text-slate-800">{product.name}</td><td className="py-3 text-right">{product.quantity_on_hand}</td><td className="py-3 text-right font-black">{currency(product.quantity_on_hand * product.unit_cost)}</td></tr>)}</tbody></table>
+            {!data.products.length ? <p className="py-8 text-center text-sm text-slate-500">No inventory entered yet.</p> : null}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

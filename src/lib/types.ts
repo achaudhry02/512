@@ -1,5 +1,7 @@
 export type ExpenseCategory =
   | "Inventory"
+  | "Inventory invoice"
+  | "Vendor invoice"
   | "Capital Candy"
   | "Fuel purchase"
   | "Payroll"
@@ -83,10 +85,34 @@ export type DailySale = EntryBase & {
   lottery_sales: number;
   lottery_payouts: number;
   deli_sales: number;
+  hot_food_sales: number;
   cigarette_sales: number;
   beer_sales: number;
   grocery_sales: number;
   other_sales: number;
+  cash_total: number;
+  card_total: number;
+  expenses: number;
+  payroll: number;
+  notes: string | null;
+};
+
+export type BulkMonthlyEntry = {
+  date: string;
+  grocery_sales: number;
+  deli_sales: number;
+  hot_food_sales: number;
+  fuel_gallons_sold: number;
+  fuel_price_per_gallon: number;
+  fuel_cost_per_gallon: number;
+  lottery_sales: number;
+  beer_sales: number;
+  cigarette_sales: number;
+  other_sales: number;
+  cash_total: number;
+  card_total: number;
+  expenses: number;
+  payroll: number;
   notes: string | null;
 };
 
@@ -169,6 +195,12 @@ export type Vendor = EntryBase & {
   normalized_name: string;
   category: SmartImportCategory;
   total_spend: number;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  products_supplied: string | null;
+  average_weekly_spend: number;
+  notes: string | null;
 };
 
 export type ProductCategory = EntryBase & {
@@ -184,6 +216,19 @@ export type Product = EntryBase & {
   category: SmartImportCategory;
   unit_cost: number;
   unit_retail_price: number;
+  quantity_on_hand: number;
+  reorder_level: number;
+  notes: string | null;
+};
+
+export type Employee = EntryBase & {
+  name: string;
+  role: "Owner/Admin" | "Manager" | "Employee/Cashier";
+  hourly_rate: number;
+  phone: string | null;
+  email: string | null;
+  active: boolean;
+  notes: string | null;
 };
 
 export type ProductSale = EntryBase & {
@@ -383,6 +428,8 @@ export type TableName =
   | "deli_entries"
   | "payroll_entries";
 
+export type ResourceTableName = "products" | "vendors" | "employees";
+
 export type TableRowMap = {
   daily_sales: DailySale;
   expenses: Expense;
@@ -390,6 +437,12 @@ export type TableRowMap = {
   lottery_entries: LotteryEntry;
   deli_entries: DeliEntry;
   payroll_entries: PayrollEntry;
+};
+
+export type ResourceRowMap = {
+  products: Product;
+  vendors: Vendor;
+  employees: Employee;
 };
 
 export type CommandCenterData = {
@@ -402,6 +455,7 @@ export type CommandCenterData = {
   imports: ImportRecord[];
   import_rows: ImportRow[];
   vendors: Vendor[];
+  employees: Employee[];
   product_categories: ProductCategory[];
   products: Product[];
   product_sales: ProductSale[];
@@ -440,6 +494,8 @@ export type ProfitLeakFinding = {
 
 export const expenseCategories: ExpenseCategory[] = [
   "Inventory",
+  "Inventory invoice",
+  "Vendor invoice",
   "Capital Candy",
   "Fuel purchase",
   "Payroll",
@@ -486,3 +542,17 @@ export const paymentMethods: PaymentMethod[] = [
   "ACH",
   "Other",
 ];
+
+export const storeCategories = [
+  "Grocery",
+  "Deli",
+  "Hot food",
+  "Fuel",
+  "Lottery",
+  "Beer",
+  "Cigarettes",
+  "Drinks",
+  "Snacks",
+  "Household",
+  "Other",
+] as const;

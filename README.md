@@ -18,12 +18,18 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Dashboard with sales, gross profit, net profit estimate, fuel profit, lottery profit, deli sales, expenses, payroll, best/worst categories, and charts
 - Add, edit, delete, and date-filter entries for:
   - Daily sales
+  - Bulk monthly entry
   - Expenses
   - Fuel tracking
   - Lottery tracking
   - Deli / hot food tracking
   - Payroll
+- Inventory CRUD with SKU/barcode search, category filters, margin, quantity, reorder levels, and low-stock alerts
+- Vendor CRUD with contacts, products supplied, average weekly spend, and recorded spend
+- Employee roster with roles, standard hourly rates, contact details, and active status
+- Weekly and monthly payroll summaries with a $2,500 weekly planning benchmark
 - Monthly P&L report with CSV export
+- Bulk Entry page for 30-31 day spreadsheet-style monthly entry, CSV import, CSV template download, validation preview, duplicate-date detection, and optional overwrite
 - Mobile-friendly sidebar navigation
 - Loading states and error handling
 - Live Supabase-backed data on every dashboard, report, import, and settings page
@@ -109,6 +115,25 @@ This repo includes:
 
 The app automatically creates a profile in `public.users` and a default store for each authenticated user.
 
+Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repeatable `if not exists` statements and replaces policies/triggers safely so an existing project can be upgraded in place.
+
+### Bulk Entry schema notes
+
+`supabase/schema.sql` adds these monthly-entry columns to `daily_sales`:
+
+- `hot_food_sales`
+- `cash_total`
+- `card_total`
+- `expenses`
+- `payroll`
+- generated `fuel_margin`
+- generated `fuel_profit`
+- generated `total_sales`
+- generated `gross_profit`
+- generated `net_profit_estimate`
+
+It also adds a unique index on `(user_id, store_id, date)` so `/bulk-entry` can prevent duplicate dates by default and safely overwrite existing daily sales when requested.
+
 ### Optional SQL seed data
 
 After signing up once, copy your user ID from Supabase Authentication > Users.
@@ -135,6 +160,9 @@ The script creates seeded:
 - Expenses
 - Fuel data
 - Payroll data
+- Inventory items, including low-stock examples
+- Vendors, including Capital Candy
+- Employees with owner, manager, and cashier roles
 
 It also intentionally includes a few anomalies so the Profit Leak Finder has alerts to display.
 
@@ -150,6 +178,7 @@ The schema creates:
 - `lottery_entries`
 - `deli_entries`
 - `payroll_entries`
+- `employees`
 - `imports`
 - `import_rows`
 - `products`
@@ -159,6 +188,8 @@ The schema creates:
 - `category_rules`
 - `vendor_rules`
 - `product_rules`
+
+`products` stores quantity on hand, reorder level, cost, retail price, and notes. `vendors` stores supplier contacts and weekly spend estimates. `employees` stores the staff roster and standard rates; payroll history remains in `payroll_entries`.
 
 All store-owned tables include `user_id` and `store_id`, plus row-level security policies using `auth.uid() = user_id`.
 
@@ -193,6 +224,31 @@ Upload flow:
 7. Click `Confirm Import`.
 
 Rows are not saved automatically. File hashes prevent duplicate file imports, and row hashes prevent duplicate row imports.
+
+## Bulk Monthly Entry
+
+Open `Bulk Entry` from the sidebar or go to `/bulk-entry`.
+
+Supported workflow:
+
+1. Pick a month to generate 30 or 31 editable daily rows.
+2. Enter daily values in the spreadsheet-style grid, or upload a CSV.
+3. Download a CSV template for the selected month when starting from a spreadsheet.
+4. Click `Preview month` to validate:
+   - missing dates for the selected month
+   - invalid or negative numbers
+   - duplicate dates inside the upload/grid
+   - dates already saved in Supabase
+5. Enable overwrite when saved dates should be replaced.
+6. Click `Save all days`.
+
+CSV headers:
+
+```csv
+date,grocery_sales,deli_sales,hot_food_sales,fuel_gallons_sold,fuel_price_per_gallon,fuel_cost_per_gallon,lottery_sales,beer_sales,cigarette_sales,other_sales,cash_total,card_total,expenses,payroll,notes
+```
+
+Bulk Entry saves daily sales rows and also writes bulk-marked expense/payroll records so the dashboard and P&L reports update through the existing reporting calculations.
 
 ### Learning system
 
@@ -242,6 +298,8 @@ Use the upload fixtures in `samples/uploads/` to test Smart Import:
 ## Profit calculations
 
 - Fuel profit: `gallons sold * (retail price per gallon - cost per gallon)`
+- Bulk Entry fuel margin: `fuel_price_per_gallon - fuel_cost_per_gallon`
+- Bulk Entry total sales: `grocery + deli + hot_food + lottery + beer + cigarettes + other`
 - Lottery profit: `(lottery sales * commission percentage) - lottery payouts`
 - Deli gross profit: `deli sales - food cost - waste amount`
 - Payroll cost: `hours worked * hourly rate`
@@ -251,6 +309,7 @@ Use the upload fixtures in `samples/uploads/` to test Smart Import:
 
 ```bash
 npm run dev
+npm run typecheck
 npm run lint
 npm run test
 npm run build

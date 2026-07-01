@@ -50,6 +50,10 @@ export function inDateRange(date: string, start?: string, end?: string) {
   return true;
 }
 
+export function rangesOverlap(rangeStart: string, rangeEnd: string, start?: string, end?: string) {
+  return (!start || rangeEnd >= start) && (!end || rangeStart <= end);
+}
+
 export function sum(values: number[]) {
   return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }
@@ -92,6 +96,7 @@ export function insideCategoryRevenue(sale: DailySale) {
     Beer: sale.beer_sales,
     Grocery: sale.grocery_sales,
     Deli: sale.deli_sales,
+    "Hot Food": sale.hot_food_sales,
     Lottery: sale.lottery_sales,
     Other: sale.other_sales,
   };
@@ -119,26 +124,35 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
   const fuelEntries = data.fuel_entries.filter((entry) => inDateRange(entry.date, start, end));
   const lotteryEntries = data.lottery_entries.filter((entry) => inDateRange(entry.date, start, end));
   const deliEntries = data.deli_entries.filter((entry) => inDateRange(entry.date, start, end));
-  const payrollEntries = data.payroll_entries.filter(
-    (entry) => inDateRange(entry.date_range_start, start, end) || inDateRange(entry.date_range_end, start, end),
+  const payrollEntries = data.payroll_entries.filter((entry) =>
+    rangesOverlap(entry.date_range_start, entry.date_range_end, start, end),
   );
 
-  const dailyFuel = sum(dailySales.map(dailyFuelProfit));
+  const trackedFuelDates = new Set(fuelEntries.map((entry) => entry.date));
+  const trackedLotteryDates = new Set(lotteryEntries.map((entry) => entry.date));
+  const trackedDeliDates = new Set(deliEntries.map((entry) => entry.date));
+  const dailyFuel = sum(dailySales.filter((sale) => !trackedFuelDates.has(sale.date)).map(dailyFuelProfit));
   const trackedFuel = sum(fuelEntries.map(fuelProfit));
-  const dailyLottery = sum(dailySales.map(dailyLotteryProfit));
+  const dailyLottery = sum(dailySales.filter((sale) => !trackedLotteryDates.has(sale.date)).map(dailyLotteryProfit));
   const trackedLottery = sum(lotteryEntries.map(lotteryProfit));
-  const dailyDeliSales = sum(dailySales.map((sale) => sale.deli_sales));
+  const fallbackDeliSales = dailySales
+    .filter((sale) => !trackedDeliDates.has(sale.date))
+    .map((sale) => sale.deli_sales + sale.hot_food_sales);
+  const dailyDeliSales = sum(fallbackDeliSales);
   const trackedDeliSales = sum(deliEntries.map((entry) => entry.deli_sales));
-  const deliGross = sum(deliEntries.map(deliGrossProfit));
+  const deliGross = sum(deliEntries.map(deliGrossProfit)) + dailyDeliSales * 0.55;
   const expensesTotal = totalExpenses(expenses);
   const payrollCost = totalPayroll(payrollEntries);
   const insideSales = totalInsideSales(dailySales);
-  const fuelProfitTotal = trackedFuel || dailyFuel;
-  const lotteryProfitTotal = trackedLottery || dailyLottery;
-  const deliSales = trackedDeliSales || dailyDeliSales;
-  const grossProfit = fuelProfitTotal + lotteryProfitTotal + deliGross + insideSales * 0.28;
+  const estimatedInsideGrossProfit = sum(dailySales.map((sale) =>
+    Math.max(0, sale.inside_sales - sale.lottery_sales - sale.deli_sales - sale.hot_food_sales) * 0.28,
+  ));
+  const fuelProfitTotal = trackedFuel + dailyFuel;
+  const lotteryProfitTotal = trackedLottery + dailyLottery;
+  const deliSales = trackedDeliSales + dailyDeliSales;
+  const grossProfit = fuelProfitTotal + lotteryProfitTotal + deliGross + estimatedInsideGrossProfit;
   const netProfit = grossProfit - expensesTotal - payrollCost;
-  const revenue = insideSales + deliSales + sum(dailySales.map((sale) => sale.fuel_gallons_sold * sale.fuel_retail_price));
+  const revenue = insideSales + sum(dailySales.map((sale) => sale.fuel_gallons_sold * sale.fuel_retail_price));
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
   return {
@@ -195,7 +209,7 @@ export function dailyChart(data: CommandCenterData, days = 14) {
       inside: sale.inside_sales,
       fuelProfit: dailyFuelProfit(sale),
       lotteryProfit: dailyLotteryProfit(sale),
-      deli: sale.deli_sales,
+      deli: sale.deli_sales + sale.hot_food_sales,
       expenses: sum(data.expenses.filter((expense) => expense.date === sale.date).map((expense) => expense.amount)),
     }));
 }
@@ -222,10 +236,13 @@ function dayProfitMargin(data: CommandCenterData, sale: DailySale) {
     : dailyLotteryProfit(sale);
   const deliProfitTotal = dayDeliEntries.length
     ? sum(dayDeliEntries.map(deliGrossProfit))
-    : sale.deli_sales * 0.55;
-  const estimatedInsideGrossProfit = sale.inside_sales * 0.28;
+    : (sale.deli_sales + sale.hot_food_sales) * 0.55;
+  const estimatedInsideGrossProfit = Math.max(
+    0,
+    sale.inside_sales - sale.lottery_sales - sale.deli_sales - sale.hot_food_sales,
+  ) * 0.28;
   const payrollCost = sum(dayPayrollEntries.map(payrollTotal));
-  const revenue = sale.inside_sales + sale.fuel_gallons_sold * sale.fuel_retail_price + sale.deli_sales;
+  const revenue = sale.inside_sales + sale.fuel_gallons_sold * sale.fuel_retail_price;
   const grossProfit = fuelProfitTotal + lotteryProfitTotal + deliProfitTotal + estimatedInsideGrossProfit;
   const netProfit = grossProfit - totalExpenses(dayExpenses) - payrollCost;
 

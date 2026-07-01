@@ -19,10 +19,11 @@ The browser talks directly to Supabase for authenticated reads and writes. Smart
 
 See `README.md` and `package.json` scripts:
 
-- `npm run dev` — development server at http://localhost:3000
-- `npm run lint` — ESLint
-- `npm run build` / `npm run start` — production build and server
-- No automated test script is defined in `package.json`
+- `npm run dev` - development server at http://localhost:3000
+- `npm run typecheck` - TypeScript validation without emitting files
+- `npm run lint` - ESLint
+- `npm test` - lint, core calculation/bulk-entry tests, and Sunoco parser tests
+- `npm run build` / `npm run start` - production build and server
 
 ### Supabase configuration
 
@@ -37,10 +38,10 @@ Without these variables, the app shows a configuration error and will not load f
 
 ### Dev server
 
-Start in a tmux session so it stays running:
+Start the server so it stays running:
 
 ```bash
 npm run dev
 ```
 
-The app redirects `/` to `/dashboard`. Key routes: `/dashboard`, `/daily-sales`, `/expenses`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/reports`, `/settings`, `/login`.
+The app redirects `/` to `/dashboard`. Key routes: `/dashboard`, `/daily-sales`, `/bulk-entry`, `/inventory`, `/vendors`, `/expenses`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/employees`, `/reports`, `/settings`, `/smart-import`, `/login`.
