@@ -3,6 +3,8 @@
 import Papa from "papaparse";
 import { CalendarDays, Download, FileUp, Save, SearchCheck } from "lucide-react";
 import { useMemo, useState, type ChangeEvent } from "react";
+import { EntryModeToggle, type EntryMode } from "@/components/entry-mode-toggle";
+import { MonthlyTotalsEntry } from "@/components/monthly-totals-entry";
 import { PageHeader } from "@/components/page-header";
 import {
   bulkFuelMargin,
@@ -43,6 +45,7 @@ const labels: Record<(typeof bulkTemplateHeaders)[number], string> = {
 
 export default function BulkEntryPage() {
   const { data, saveBulkMonthlyEntries } = useCommandCenter();
+  const [mode, setMode] = useState<EntryMode>("bulk");
   const [month, setMonth] = useState(monthStartIso().slice(0, 7));
   const [rows, setRows] = useState<BulkMonthlyEntry[]>(() => monthDays(monthStartIso().slice(0, 7)).map(emptyBulkEntry));
   const [previewed, setPreviewed] = useState(false);
@@ -158,9 +161,10 @@ export default function BulkEntryPage() {
     <div>
       <PageHeader
         eyebrow="Bulk Entry"
-        title="Monthly Entry"
-        description="Enter or import a full month of daily store data, preview calculated totals, validate dates and numbers, then save the month in one submit."
+        title={mode === "monthly" ? "Monthly Totals Entry" : "Bulk Daily Entry"}
+        description={mode === "monthly" ? "Enter one total number set for the whole month without overwriting daily records." : "Enter or import a full month of daily store data, preview calculated totals, validate dates and numbers, then save the month in one submit."}
         actions={
+          mode === "monthly" ? null :
           <div className="flex flex-wrap gap-3">
             <button
               className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-100"
@@ -178,6 +182,11 @@ export default function BulkEntryPage() {
           </div>
         }
       />
+
+      <EntryModeToggle active={mode} onSelect={setMode} />
+
+      {mode === "monthly" ? <MonthlyTotalsEntry /> : (
+        <>
 
       {status ? (
         <div className="mb-6 rounded-3xl border border-cyan-200 bg-cyan-50/90 p-4 text-sm font-semibold text-cyan-800 shadow-sm">
@@ -323,6 +332,8 @@ export default function BulkEntryPage() {
           </div>
         </section>
       ) : null}
+        </>
+      )}
     </div>
   );
 }

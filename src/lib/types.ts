@@ -116,6 +116,33 @@ export type BulkMonthlyEntry = {
   notes: string | null;
 };
 
+export type MonthlyTotal = EntryBase & {
+  year: number;
+  month: number;
+  grocery_sales: number;
+  deli_sales: number;
+  hot_food_sales: number;
+  fuel_gallons_sold: number;
+  fuel_revenue: number;
+  fuel_cost: number;
+  lottery_sales: number;
+  beer_sales: number;
+  cigarette_sales: number;
+  vape_nicotine_sales: number;
+  other_sales: number;
+  cash_sales: number;
+  card_sales: number;
+  payroll: number;
+  inventory_purchases: number;
+  vendor_expenses: number;
+  utilities: number;
+  rent_mortgage: number;
+  insurance: number;
+  repairs_maintenance: number;
+  miscellaneous_expenses: number;
+  notes: string | null;
+};
+
 export type Expense = EntryBase & {
   date: string;
   vendor_name: string;
@@ -422,6 +449,7 @@ export type ParsedImportResult = {
 
 export type TableName =
   | "daily_sales"
+  | "monthly_totals"
   | "expenses"
   | "fuel_entries"
   | "lottery_entries"
@@ -432,6 +460,7 @@ export type ResourceTableName = "products" | "vendors" | "employees";
 
 export type TableRowMap = {
   daily_sales: DailySale;
+  monthly_totals: MonthlyTotal;
   expenses: Expense;
   fuel_entries: FuelEntry;
   lottery_entries: LotteryEntry;
@@ -447,6 +476,7 @@ export type ResourceRowMap = {
 
 export type CommandCenterData = {
   daily_sales: DailySale[];
+  monthly_totals: MonthlyTotal[];
   expenses: Expense[];
   fuel_entries: FuelEntry[];
   lottery_entries: LotteryEntry[];

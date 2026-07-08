@@ -1,11 +1,14 @@
 "use client";
 
+import { EntryModeToggle } from "@/components/entry-mode-toggle";
 import { EntryManager } from "@/components/entry-manager";
 import { currency, dailyFuelProfit, dailyLotteryProfit, todayIso } from "@/lib/calculations";
 
 export default function DailySalesPage() {
   return (
-    <EntryManager
+    <>
+      <EntryModeToggle active="daily" />
+      <EntryManager
       table="daily_sales"
       title="Daily Sales Entry"
       description="Capture your daily sales mix across inside sales, fuel, lottery, deli, cigarettes, beer, grocery, and other categories."
@@ -67,6 +70,7 @@ export default function DailySalesPage() {
         { header: "Deli sales", cell: (row) => currency(row.deli_sales) },
         { header: "Hot food", cell: (row) => currency(row.hot_food_sales) },
       ]}
-    />
+      />
+    </>
   );
 }

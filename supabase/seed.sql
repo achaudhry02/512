@@ -84,6 +84,42 @@ begin
     (seed_user_id, seed_store_id, 'Jordan Lee', current_date - interval '6 days', current_date, 38.5, 18, 'Shift lead.'),
     (seed_user_id, seed_store_id, 'Mia Patel', current_date - interval '6 days', current_date, 32, 16.5, null);
 
+  insert into public.monthly_totals (
+    user_id, store_id, year, month, grocery_sales, deli_sales, hot_food_sales,
+    fuel_gallons_sold, fuel_revenue, fuel_cost, lottery_sales, beer_sales,
+    cigarette_sales, vape_nicotine_sales, other_sales, cash_sales, card_sales,
+    payroll, inventory_purchases, vendor_expenses, utilities, rent_mortgage,
+    insurance, repairs_maintenance, miscellaneous_expenses, notes
+  )
+  values (
+    seed_user_id,
+    seed_store_id,
+    extract(year from current_date)::integer,
+    extract(month from current_date)::integer,
+    36500,
+    8500,
+    6200,
+    61500,
+    220785,
+    208485,
+    26500,
+    31400,
+    42200,
+    7800,
+    14900,
+    164500,
+    225300,
+    10800,
+    48500,
+    12600,
+    2100,
+    7600,
+    1400,
+    1850,
+    2400,
+    'Demo monthly totals entry. Daily records remain separate.'
+  );
+
   insert into public.vendors (
     user_id, store_id, name, normalized_name, category, contact_person, phone,
     email, products_supplied, average_weekly_spend, total_spend, notes

@@ -86,6 +86,91 @@ alter table public.daily_sales add column if not exists net_profit_estimate nume
   payroll
 ) stored;
 
+create table if not exists public.monthly_totals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  year integer not null check (year between 2000 and 2100),
+  month integer not null check (month between 1 and 12),
+  grocery_sales numeric(12,2) not null default 0,
+  deli_sales numeric(12,2) not null default 0,
+  hot_food_sales numeric(12,2) not null default 0,
+  fuel_gallons_sold numeric(12,3) not null default 0,
+  fuel_revenue numeric(12,2) not null default 0,
+  fuel_cost numeric(12,2) not null default 0,
+  lottery_sales numeric(12,2) not null default 0,
+  beer_sales numeric(12,2) not null default 0,
+  cigarette_sales numeric(12,2) not null default 0,
+  vape_nicotine_sales numeric(12,2) not null default 0,
+  other_sales numeric(12,2) not null default 0,
+  cash_sales numeric(12,2) not null default 0,
+  card_sales numeric(12,2) not null default 0,
+  payroll numeric(12,2) not null default 0,
+  inventory_purchases numeric(12,2) not null default 0,
+  vendor_expenses numeric(12,2) not null default 0,
+  utilities numeric(12,2) not null default 0,
+  rent_mortgage numeric(12,2) not null default 0,
+  insurance numeric(12,2) not null default 0,
+  repairs_maintenance numeric(12,2) not null default 0,
+  miscellaneous_expenses numeric(12,2) not null default 0,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  total_sales numeric generated always as (
+    grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales +
+    beer_sales + cigarette_sales + vape_nicotine_sales + other_sales
+  ) stored,
+  total_expenses numeric generated always as (
+    payroll + inventory_purchases + vendor_expenses + utilities + rent_mortgage +
+    insurance + repairs_maintenance + miscellaneous_expenses
+  ) stored,
+  fuel_margin numeric generated always as (
+    case when fuel_gallons_sold > 0 then (fuel_revenue - fuel_cost) / fuel_gallons_sold else 0 end
+  ) stored,
+  fuel_profit numeric generated always as (fuel_revenue - fuel_cost) stored,
+  gross_profit numeric generated always as (
+    (fuel_revenue - fuel_cost) +
+    (lottery_sales * 0.06) +
+    ((deli_sales + hot_food_sales) * 0.55) +
+    ((grocery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) * 0.28)
+  ) stored,
+  estimated_net_profit numeric generated always as (
+    (fuel_revenue - fuel_cost) +
+    (lottery_sales * 0.06) +
+    ((deli_sales + hot_food_sales) * 0.55) +
+    ((grocery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) * 0.28) -
+    (payroll + inventory_purchases + vendor_expenses + utilities + rent_mortgage + insurance + repairs_maintenance + miscellaneous_expenses)
+  ) stored,
+  expense_percentage numeric generated always as (
+    case
+      when (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) > 0
+      then ((payroll + inventory_purchases + vendor_expenses + utilities + rent_mortgage + insurance + repairs_maintenance + miscellaneous_expenses) /
+        (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales)) * 100
+      else 0
+    end
+  ) stored,
+  gross_margin_percent numeric generated always as (
+    case
+      when (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) > 0
+      then (((fuel_revenue - fuel_cost) + (lottery_sales * 0.06) + ((deli_sales + hot_food_sales) * 0.55) +
+        ((grocery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) * 0.28)) /
+        (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales)) * 100
+      else 0
+    end
+  ) stored,
+  net_margin_percent numeric generated always as (
+    case
+      when (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) > 0
+      then ((((fuel_revenue - fuel_cost) + (lottery_sales * 0.06) + ((deli_sales + hot_food_sales) * 0.55) +
+        ((grocery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales) * 0.28)) -
+        (payroll + inventory_purchases + vendor_expenses + utilities + rent_mortgage + insurance + repairs_maintenance + miscellaneous_expenses)) /
+        (grocery_sales + deli_sales + hot_food_sales + fuel_revenue + lottery_sales + beer_sales + cigarette_sales + vape_nicotine_sales + other_sales)) * 100
+      else 0
+    end
+  ) stored,
+  unique (user_id, store_id, year, month)
+);
+
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -461,6 +546,8 @@ create table if not exists public.product_rules (
 create index if not exists stores_user_id_idx on public.stores(user_id);
 create index if not exists daily_sales_user_store_date_idx on public.daily_sales(user_id, store_id, date desc);
 create unique index if not exists daily_sales_user_store_date_unique_idx on public.daily_sales(user_id, store_id, date);
+create index if not exists monthly_totals_user_store_period_idx on public.monthly_totals(user_id, store_id, year desc, month desc);
+create unique index if not exists monthly_totals_user_store_period_unique_idx on public.monthly_totals(user_id, store_id, year, month);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
 create index if not exists fuel_entries_user_store_date_idx on public.fuel_entries(user_id, store_id, date desc);
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
@@ -508,6 +595,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_daily_sales_updated_at on public.daily_sales;
 create trigger set_daily_sales_updated_at
 before update on public.daily_sales
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_monthly_totals_updated_at on public.monthly_totals;
+create trigger set_monthly_totals_updated_at
+before update on public.monthly_totals
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_expenses_updated_at on public.expenses;
@@ -588,6 +680,7 @@ for each row execute function public.set_updated_at();
 alter table public.users enable row level security;
 alter table public.stores enable row level security;
 alter table public.daily_sales enable row level security;
+alter table public.monthly_totals enable row level security;
 alter table public.expenses enable row level security;
 alter table public.fuel_entries enable row level security;
 alter table public.lottery_entries enable row level security;
@@ -619,6 +712,13 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "Users can manage their own daily sales" on public.daily_sales;
 create policy "Users can manage their own daily sales" on public.daily_sales
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own monthly totals" on public.monthly_totals;
+create policy "Users can manage their own monthly totals" on public.monthly_totals
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can manage their own expenses" on public.expenses;
 create policy "Users can manage their own expenses" on public.expenses
@@ -800,3 +900,6 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "Users can manage their own product rules" on public.product_rules;
 create policy "Users can manage their own product rules" on public.product_rules
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on table public.monthly_totals to authenticated;

@@ -5,9 +5,19 @@ import type {
   Expense,
   FuelEntry,
   LotteryEntry,
+  MonthlyTotal,
   PayrollEntry,
   ProfitLeakFinding,
 } from "@/lib/types";
+import {
+  monthlyFuelProfit,
+  monthlyGrossProfit,
+  monthlyInsideSales,
+  monthlyPeriodEnd,
+  monthlyPeriodKey,
+  monthlyPeriodStart,
+  monthlyTotalExpenses,
+} from "@/lib/monthly-totals";
 
 export const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -118,14 +128,46 @@ export function totalPayroll(payrollEntries: PayrollEntry[]) {
   return sum(payrollEntries.map(payrollTotal));
 }
 
+function monthKeyFromDate(date: string) {
+  return date.slice(0, 7);
+}
+
+function monthlyTotalsInRange(monthlyTotals: MonthlyTotal[], start?: string, end?: string) {
+  return monthlyTotals.filter((entry) => rangesOverlap(monthlyPeriodStart(entry), monthlyPeriodEnd(entry), start, end));
+}
+
+function payrollOverlapsAnyMonth(entry: PayrollEntry, monthKeys: ReadonlySet<string>) {
+  return Array.from(monthKeys).some((month) => {
+    const [year, monthNumber] = month.split("-").map(Number);
+    const monthEntry = { year, month: monthNumber };
+    return rangesOverlap(entry.date_range_start, entry.date_range_end, monthlyPeriodStart(monthEntry), monthlyPeriodEnd(monthEntry));
+  });
+}
+
+function monthlyExpenseBreakdown(entries: MonthlyTotal[]) {
+  return entries.reduce<Record<string, number>>((categories, entry) => {
+    categories.Payroll = (categories.Payroll ?? 0) + entry.payroll;
+    categories.Inventory = (categories.Inventory ?? 0) + entry.inventory_purchases;
+    categories["Vendor invoice"] = (categories["Vendor invoice"] ?? 0) + entry.vendor_expenses;
+    categories.Utilities = (categories.Utilities ?? 0) + entry.utilities;
+    categories["Rent/Mortgage"] = (categories["Rent/Mortgage"] ?? 0) + entry.rent_mortgage;
+    categories.Insurance = (categories.Insurance ?? 0) + entry.insurance;
+    categories.Repairs = (categories.Repairs ?? 0) + entry.repairs_maintenance;
+    categories.Other = (categories.Other ?? 0) + entry.miscellaneous_expenses;
+    return categories;
+  }, {});
+}
+
 export function aggregateData(data: CommandCenterData, start?: string, end?: string) {
-  const dailySales = data.daily_sales.filter((entry) => inDateRange(entry.date, start, end));
-  const expenses = data.expenses.filter((entry) => inDateRange(entry.date, start, end));
-  const fuelEntries = data.fuel_entries.filter((entry) => inDateRange(entry.date, start, end));
-  const lotteryEntries = data.lottery_entries.filter((entry) => inDateRange(entry.date, start, end));
-  const deliEntries = data.deli_entries.filter((entry) => inDateRange(entry.date, start, end));
+  const monthlyTotals = monthlyTotalsInRange(data.monthly_totals, start, end);
+  const monthlyKeys = new Set(monthlyTotals.map(monthlyPeriodKey));
+  const dailySales = data.daily_sales.filter((entry) => inDateRange(entry.date, start, end) && !monthlyKeys.has(monthKeyFromDate(entry.date)));
+  const expenses = data.expenses.filter((entry) => inDateRange(entry.date, start, end) && !monthlyKeys.has(monthKeyFromDate(entry.date)));
+  const fuelEntries = data.fuel_entries.filter((entry) => inDateRange(entry.date, start, end) && !monthlyKeys.has(monthKeyFromDate(entry.date)));
+  const lotteryEntries = data.lottery_entries.filter((entry) => inDateRange(entry.date, start, end) && !monthlyKeys.has(monthKeyFromDate(entry.date)));
+  const deliEntries = data.deli_entries.filter((entry) => inDateRange(entry.date, start, end) && !monthlyKeys.has(monthKeyFromDate(entry.date)));
   const payrollEntries = data.payroll_entries.filter((entry) =>
-    rangesOverlap(entry.date_range_start, entry.date_range_end, start, end),
+    rangesOverlap(entry.date_range_start, entry.date_range_end, start, end) && !payrollOverlapsAnyMonth(entry, monthlyKeys),
   );
 
   const trackedFuelDates = new Set(fuelEntries.map((entry) => entry.date));
@@ -141,21 +183,38 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
   const dailyDeliSales = sum(fallbackDeliSales);
   const trackedDeliSales = sum(deliEntries.map((entry) => entry.deli_sales));
   const deliGross = sum(deliEntries.map(deliGrossProfit)) + dailyDeliSales * 0.55;
-  const expensesTotal = totalExpenses(expenses);
-  const payrollCost = totalPayroll(payrollEntries);
-  const insideSales = totalInsideSales(dailySales);
+  const baseExpenses = totalExpenses(expenses);
+  const basePayroll = totalPayroll(payrollEntries);
+  const monthlyExpenses = sum(monthlyTotals.map(monthlyTotalExpenses));
+  const monthlyPayroll = sum(monthlyTotals.map((entry) => entry.payroll));
+  const expensesTotal = baseExpenses + monthlyExpenses;
+  const payrollCost = basePayroll + monthlyPayroll;
+  const insideSales = totalInsideSales(dailySales) + sum(monthlyTotals.map(monthlyInsideSales));
   const estimatedInsideGrossProfit = sum(dailySales.map((sale) =>
     Math.max(0, sale.inside_sales - sale.lottery_sales - sale.deli_sales - sale.hot_food_sales) * 0.28,
   ));
-  const fuelProfitTotal = trackedFuel + dailyFuel;
-  const lotteryProfitTotal = trackedLottery + dailyLottery;
-  const deliSales = trackedDeliSales + dailyDeliSales;
-  const grossProfit = fuelProfitTotal + lotteryProfitTotal + deliGross + estimatedInsideGrossProfit;
-  const netProfit = grossProfit - expensesTotal - payrollCost;
-  const revenue = insideSales + sum(dailySales.map((sale) => sale.fuel_gallons_sold * sale.fuel_retail_price));
+  const monthlyFuel = sum(monthlyTotals.map(monthlyFuelProfit));
+  const monthlyLottery = sum(monthlyTotals.map((entry) => entry.lottery_sales * 0.06));
+  const monthlyDeliSales = sum(monthlyTotals.map((entry) => entry.deli_sales + entry.hot_food_sales));
+  const fuelProfitTotal = trackedFuel + dailyFuel + monthlyFuel;
+  const lotteryProfitTotal = trackedLottery + dailyLottery + monthlyLottery;
+  const deliSales = trackedDeliSales + dailyDeliSales + monthlyDeliSales;
+  const monthlyGross = sum(monthlyTotals.map(monthlyGrossProfit));
+  const dailyGross = trackedFuel + dailyFuel + trackedLottery + dailyLottery + deliGross + estimatedInsideGrossProfit;
+  const grossProfit = dailyGross + monthlyGross;
+  const netProfit = grossProfit - baseExpenses - basePayroll - monthlyExpenses;
+  const revenue = insideSales + sum(dailySales.map((sale) => sale.fuel_gallons_sold * sale.fuel_retail_price)) +
+    sum(monthlyTotals.map((entry) => entry.fuel_revenue));
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const expenseBreakdown = {
+    ...expensesByCategory(expenses),
+  };
+  for (const [category, value] of Object.entries(monthlyExpenseBreakdown(monthlyTotals))) {
+    expenseBreakdown[category] = (expenseBreakdown[category] ?? 0) + value;
+  }
 
   return {
+    monthlyTotals,
     dailySales,
     expenses,
     fuelEntries,
@@ -173,6 +232,8 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
     netProfit,
     totalRevenue: revenue,
     profitMargin,
+    expenseBreakdown,
+    source: monthlyTotals.length ? "monthly_totals" : "daily",
   };
 }
 

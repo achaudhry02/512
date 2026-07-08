@@ -30,7 +30,7 @@ export default function ReportsPage() {
     () => aggregateData(data, startDate || undefined, endDate || undefined),
     [data, endDate, startDate],
   );
-  const expenseMap = expensesByCategory(report.expenses);
+  const expenseMap = report.expenseBreakdown ?? expensesByCategory(report.expenses);
   const inventoryValue = data.products.reduce((total, product) => total + product.quantity_on_hand * product.unit_cost, 0);
   const vendorSpend = Object.entries(report.expenses.reduce<Record<string, number>>((vendors, expense) => {
     vendors[expense.vendor_name] = (vendors[expense.vendor_name] ?? 0) + expense.amount;
@@ -42,6 +42,7 @@ export default function ReportsPage() {
       ["Convenience Store Command Center P&L"],
       ["Store", store?.name ?? "Store"],
       ["Date range", `${startDate} to ${endDate}`],
+      ["Data source", report.source === "monthly_totals" ? "Monthly totals entries where available" : "Daily data"],
       [],
       ["Metric", "Amount"],
       ["Total revenue", report.totalRevenue],
@@ -100,6 +101,9 @@ export default function ReportsPage() {
           type="date"
           value={endDate}
         />
+        <span className="rounded-full bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-700 ring-1 ring-cyan-100">
+          {report.source === "monthly_totals" ? "Using monthly totals where available" : "Using daily data"}
+        </span>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

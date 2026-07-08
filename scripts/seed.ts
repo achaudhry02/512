@@ -170,6 +170,36 @@ async function main() {
     },
   ];
 
+  const now = new Date();
+  const monthlyTotals = [{
+    user_id: userId,
+    store_id: storeId,
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    grocery_sales: 36500,
+    deli_sales: 8500,
+    hot_food_sales: 6200,
+    fuel_gallons_sold: 61500,
+    fuel_revenue: 220785,
+    fuel_cost: 208485,
+    lottery_sales: 26500,
+    beer_sales: 31400,
+    cigarette_sales: 42200,
+    vape_nicotine_sales: 7800,
+    other_sales: 14900,
+    cash_sales: 164500,
+    card_sales: 225300,
+    payroll: 10800,
+    inventory_purchases: 48500,
+    vendor_expenses: 12600,
+    utilities: 2100,
+    rent_mortgage: 7600,
+    insurance: 1400,
+    repairs_maintenance: 1850,
+    miscellaneous_expenses: 2400,
+    notes: "Seeded monthly totals entry. Daily records remain separate.",
+  }];
+
   const vendors = [
     { user_id: userId, store_id: storeId, name: "Capital Candy", normalized_name: "capital candy", category: "Capital Candy", contact_person: "Chris Morgan", phone: "555-0101", email: "orders@capitalcandy.example", products_supplied: "Candy, snacks, drinks, grocery", average_weekly_spend: 1850, total_spend: 7400, notes: "Primary distributor." },
     { user_id: userId, store_id: storeId, name: "Metro Beverage", normalized_name: "metro beverage", category: "Beer / Alcohol", contact_person: "Dana Ruiz", phone: "555-0110", email: null, products_supplied: "Beer and malt beverages", average_weekly_spend: 1200, total_spend: 4800, notes: null },
@@ -201,6 +231,9 @@ async function main() {
   const { error: payrollError } = await supabase.from("payroll_entries").insert(payrollEntries);
   if (payrollError) throw payrollError;
 
+  const { error: monthlyError } = await supabase.from("monthly_totals").insert(monthlyTotals);
+  if (monthlyError) throw monthlyError;
+
   const { error: vendorError } = await supabase.from("vendors").insert(vendors);
   if (vendorError) throw vendorError;
 
@@ -210,7 +243,7 @@ async function main() {
   const { error: employeeError } = await supabase.from("employees").insert(employees);
   if (employeeError) throw employeeError;
 
-  console.log(`Seeded ${seedStoreName} with sales, expenses, fuel, payroll, inventory, vendors, and employees.`);
+  console.log(`Seeded ${seedStoreName} with sales, monthly totals, expenses, fuel, payroll, inventory, vendors, and employees.`);
 }
 
 main().catch((error) => {

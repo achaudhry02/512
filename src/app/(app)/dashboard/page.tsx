@@ -31,6 +31,7 @@ import {
   WalletCards,
   Zap,
 } from "lucide-react";
+import { useState } from "react";
 import { LoadingState } from "@/components/loading-state";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
@@ -46,6 +47,12 @@ import {
   todayIso,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
+import {
+  monthlyFuelProfit,
+  monthlyInsideSales,
+  monthlyPeriodKey,
+  monthlyTotalExpenses,
+} from "@/lib/monthly-totals";
 import type { ProfitLeakFinding } from "@/lib/types";
 
 const chartColors = ["#06b6d4", "#10b981", "#f59e0b", "#f43f5e", "#6366f1", "#64748b"];
@@ -79,15 +86,29 @@ const leakTypeLabels = {
 
 export default function DashboardPage() {
   const { data, loading, store } = useCommandCenter();
+  const [view, setView] = useState<"daily" | "monthly">("daily");
   const today = todayIso();
   const todaySummary = aggregateData(data, today, today);
   const monthSummary = aggregateData(data, monthStartIso(), monthEndIso());
+  const activeSummary = view === "monthly" ? monthSummary : todaySummary;
   const categorySummary = bestWorstCategories(data.daily_sales);
-  const expenses = Object.entries(expensesByCategory(monthSummary.expenses)).map(([name, value]) => ({
+  const expenses = Object.entries(monthSummary.expenseBreakdown ?? expensesByCategory(monthSummary.expenses)).map(([name, value]) => ({
     name,
     value,
   }));
-  const trend = dailyChart(data);
+  const monthlyTrend = data.monthly_totals
+    .slice()
+    .sort((a, b) => monthlyPeriodKey(a).localeCompare(monthlyPeriodKey(b)))
+    .slice(-12)
+    .map((entry) => ({
+      date: monthlyPeriodKey(entry),
+      inside: monthlyInsideSales(entry),
+      fuelProfit: monthlyFuelProfit(entry),
+      lotteryProfit: entry.lottery_sales * 0.06,
+      deli: entry.deli_sales + entry.hot_food_sales,
+      expenses: monthlyTotalExpenses(entry),
+    }));
+  const trend = view === "monthly" && monthlyTrend.length ? monthlyTrend : dailyChart(data);
   const profitLeaks = analyzeProfitLeaks(data).slice(0, 6);
   const todaySale = data.daily_sales.find((sale) => sale.date === today);
   const lowStock = data.products.filter((product) => product.quantity_on_hand <= product.reorder_level);
@@ -111,6 +132,22 @@ export default function DashboardPage() {
         description="Track today's sales, profit estimates, fuel, lottery, deli, expenses, payroll, and category performance from one command center."
       />
 
+      <div className="mb-6 grid gap-2 rounded-[1.5rem] border border-white/80 bg-white/85 p-2 shadow-card sm:w-fit sm:grid-cols-2">
+        {[
+          ["daily", "Daily View"],
+          ["monthly", "Monthly Totals View"],
+        ].map(([key, label]) => (
+          <button
+            className={`rounded-2xl px-5 py-3 text-sm font-black transition ${view === key ? "bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}
+            key={key}
+            onClick={() => setView(key as "daily" | "monthly")}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <section className="mb-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
         <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-premium">
           <div className="absolute right-0 top-0 h-64 w-64 translate-x-20 -translate-y-24 rounded-full bg-cyan-400/20 blur-3xl" />
@@ -130,18 +167,18 @@ export default function DashboardPage() {
             </div>
             <div className="grid min-w-72 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-300">Net profit estimate</span>
+                <span className="text-sm font-semibold text-slate-300">{view === "monthly" ? "Monthly net profit estimate" : "Net profit estimate"}</span>
                 <ArrowUpRight className="h-4 w-4 text-emerald-300" />
               </div>
-              <p className="text-4xl font-black tracking-tight">{currency(monthSummary.netProfit)}</p>
+              <p className="text-4xl font-black tracking-tight">{currency(activeSummary.netProfit)}</p>
               <div className="h-2 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300"
-                  style={{ width: `${Math.max(12, Math.min(100, Math.abs(monthSummary.profitMargin)))}%` }}
+                  style={{ width: `${Math.max(12, Math.min(100, Math.abs(activeSummary.profitMargin)))}%` }}
                 />
               </div>
               <p className="text-xs font-semibold text-slate-400">
-                {monthSummary.profitMargin.toFixed(1)}% estimated profit margin
+                {activeSummary.profitMargin.toFixed(1)}% estimated profit margin
               </p>
             </div>
           </div>
@@ -153,15 +190,15 @@ export default function DashboardPage() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-black text-slate-950">Today&apos;s focus</p>
-              <p className="text-xs font-semibold text-slate-500">{today}</p>
+              <p className="text-sm font-black text-slate-950">{view === "monthly" ? "Monthly focus" : "Today's focus"}</p>
+              <p className="text-xs font-semibold text-slate-500">{view === "monthly" ? `${monthStartIso()} to ${monthEndIso()}` : today}</p>
             </div>
           </div>
           {[
-            ["Inside sales", todaySummary.insideSales],
-            ["Fuel profit", todaySummary.fuelProfit],
-            ["Total expenses", todaySummary.totalExpenses],
-            ["Payroll cost", todaySummary.payrollCost],
+            ["Inside sales", activeSummary.insideSales],
+            ["Fuel profit", activeSummary.fuelProfit],
+            ["Total expenses", activeSummary.totalExpenses],
+            ["Payroll cost", activeSummary.payrollCost],
           ].map(([label, value]) => (
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3" key={label}>
               <span className="text-sm font-bold text-slate-600">{label}</span>
@@ -233,27 +270,27 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           accent="cyan"
-          helper="Inside sales recorded for today"
+          helper={view === "monthly" ? "Inside sales from monthly totals or summed daily data" : "Inside sales recorded for today"}
           icon={WalletCards}
-          label="Total sales today"
-          trend="Live"
-          value={todaySummary.insideSales}
+          label={view === "monthly" ? "Monthly inside sales" : "Total sales today"}
+          trend={view === "monthly" ? monthSummary.source === "monthly_totals" ? "Monthly totals" : "Daily sum" : "Live"}
+          value={activeSummary.insideSales}
         />
         <StatCard
           accent="emerald"
-          helper="Fuel, lottery, deli, and estimated inside margin today"
+          helper={view === "monthly" ? "Fuel, lottery, food, and estimated inside margin this month" : "Fuel, lottery, deli, and estimated inside margin today"}
           icon={TrendingUp}
           label="Gross profit"
-          trend="Today"
-          value={todaySummary.grossProfit}
+          trend={view === "monthly" ? "Month" : "Today"}
+          value={activeSummary.grossProfit}
         />
         <StatCard
           accent={monthSummary.netProfit >= 0 ? "emerald" : "rose"}
           helper="After expenses and payroll"
           icon={CircleDollarSign}
           label="Net profit estimate"
-          trend={`${monthSummary.profitMargin.toFixed(1)}%`}
-          value={todaySummary.netProfit}
+          trend={`${activeSummary.profitMargin.toFixed(1)}%`}
+          value={activeSummary.netProfit}
         />
         <StatCard
           accent="slate"

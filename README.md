@@ -134,6 +134,8 @@ Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repea
 
 It also adds a unique index on `(user_id, store_id, date)` so `/bulk-entry` can prevent duplicate dates by default and safely overwrite existing daily sales when requested.
 
+`monthly_totals` is a separate month-level table with one row per `(user_id, store_id, year, month)`. It includes generated columns for total sales, total expenses, fuel margin, fuel profit, gross profit, estimated net profit, expense percentage, gross margin, and net margin. The schema enables RLS and grants authenticated CRUD for the table so it is available through Supabase's Data API on newer projects.
+
 ### Optional SQL seed data
 
 After signing up once, copy your user ID from Supabase Authentication > Users.
@@ -225,9 +227,15 @@ Upload flow:
 
 Rows are not saved automatically. File hashes prevent duplicate file imports, and row hashes prevent duplicate row imports.
 
-## Bulk Monthly Entry
+## Entry Modes
 
-Open `Bulk Entry` from the sidebar or go to `/bulk-entry`.
+Open `Daily Sales` or `Bulk Entry` from the sidebar. The entry toggle supports:
+
+- `Daily Entry`: one day at a time at `/daily-sales`
+- `Bulk Daily Entry`: 30-31 daily rows at `/bulk-entry`
+- `Monthly Totals Entry`: one total record for a whole month at `/bulk-entry`
+
+### Bulk Daily Entry
 
 Supported workflow:
 
@@ -249,6 +257,16 @@ date,grocery_sales,deli_sales,hot_food_sales,fuel_gallons_sold,fuel_price_per_ga
 ```
 
 Bulk Entry saves daily sales rows and also writes bulk-marked expense/payroll records so the dashboard and P&L reports update through the existing reporting calculations.
+
+### Monthly Totals Entry
+
+Monthly Totals Entry saves to the separate `monthly_totals` table and does not overwrite daily sales rows.
+
+Fields include month, year, grocery, deli, hot food, fuel gallons, fuel revenue, fuel cost, lottery, beer, cigarettes, vape/nicotine, other sales, cash/card sales, payroll, inventory purchases, vendor expenses, utilities, rent/mortgage, insurance, repairs/maintenance, miscellaneous expenses, and notes.
+
+The form calculates total sales, total expenses, fuel margin, fuel profit, gross profit, estimated net profit, expense percentage, gross margin, and net margin. It supports save, edit, delete, browser print/PDF, and Excel-compatible export.
+
+Reports and the dashboard use monthly totals for months where a `monthly_totals` row exists. Daily records remain available and are still used for months without a monthly total.
 
 ### Learning system
 

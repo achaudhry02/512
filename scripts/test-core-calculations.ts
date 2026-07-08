@@ -11,7 +11,17 @@ import {
   validateBulkRows,
 } from "../src/lib/bulk-entry";
 import { aggregateData, rangesOverlap } from "../src/lib/calculations";
-import type { CommandCenterData, DailySale } from "../src/lib/types";
+import {
+  emptyMonthlyTotals,
+  monthlyFuelMargin,
+  monthlyFuelProfit,
+  monthlyGrossMarginPercent,
+  monthlyNetMarginPercent,
+  monthlyNetProfit,
+  monthlyTotalExpenses,
+  monthlyTotalSales,
+} from "../src/lib/monthly-totals";
+import type { CommandCenterData, DailySale, MonthlyTotal } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -57,6 +67,38 @@ assert.ok(template.startsWith("date,grocery_sales"), "template should contain ca
 
 assert.equal(rangesOverlap("2026-05-01", "2026-07-01", "2026-06-01", "2026-06-30"), true, "containing payroll range should overlap report range");
 
+const monthlyTotals = {
+  ...emptyMonthlyTotals(),
+  year: 2026,
+  month: 6,
+  grocery_sales: 10000,
+  deli_sales: 3000,
+  hot_food_sales: 2000,
+  fuel_gallons_sold: 10000,
+  fuel_revenue: 35000,
+  fuel_cost: 33000,
+  lottery_sales: 5000,
+  beer_sales: 4000,
+  cigarette_sales: 6000,
+  vape_nicotine_sales: 1500,
+  other_sales: 2500,
+  payroll: 5000,
+  inventory_purchases: 8000,
+  vendor_expenses: 2000,
+  utilities: 1000,
+  rent_mortgage: 3000,
+  insurance: 500,
+  repairs_maintenance: 400,
+  miscellaneous_expenses: 600,
+};
+assert.equal(monthlyTotalSales(monthlyTotals), 69000, "monthly total sales should include fuel revenue and vape/nicotine");
+assert.equal(monthlyTotalExpenses(monthlyTotals), 20500, "monthly total expenses should include payroll and expense buckets");
+closeTo(monthlyFuelMargin(monthlyTotals), 0.2, "monthly fuel margin");
+assert.equal(monthlyFuelProfit(monthlyTotals), 2000, "monthly fuel profit");
+assert.equal(monthlyNetProfit(monthlyTotals), -8730, "monthly estimated net profit");
+closeTo(monthlyGrossMarginPercent(monthlyTotals), 17.057971014492754, "monthly gross margin percent");
+closeTo(monthlyNetMarginPercent(monthlyTotals), -12.652173913043478, "monthly net margin percent");
+
 const dailySale = (date: string): DailySale => ({
   id: date, user_id: "user", store_id: "store", date,
   inside_sales: 1000, fuel_gallons_sold: 100, fuel_retail_price: 3.5, fuel_cost_per_gallon: 3.3,
@@ -66,6 +108,7 @@ const dailySale = (date: string): DailySale => ({
 });
 
 const aggregateFixture: CommandCenterData = {
+  monthly_totals: [],
   daily_sales: [dailySale("2026-06-01"), dailySale("2026-06-02")],
   fuel_entries: [{ id: "fuel", user_id: "user", store_id: "store", date: "2026-06-01", gallons_sold: 100, retail_price_per_gallon: 3.6, cost_per_gallon: 3.3, notes: null }],
   lottery_entries: [], deli_entries: [], expenses: [],
@@ -76,5 +119,19 @@ const aggregateFixture: CommandCenterData = {
 const aggregate = aggregateData(aggregateFixture, "2026-06-01", "2026-06-30");
 closeTo(aggregate.fuelProfit, 50, "tracked fuel should replace only the matching daily fallback");
 assert.equal(aggregate.payrollCost, 200, "payroll spanning the report range should be included");
+
+const savedMonthlyTotal: MonthlyTotal = {
+  ...monthlyTotals,
+  id: "monthly", user_id: "user", store_id: "store", notes: null,
+};
+const monthlyAggregate = aggregateData(
+  { ...aggregateFixture, monthly_totals: [savedMonthlyTotal] },
+  "2026-06-01",
+  "2026-06-30",
+);
+assert.equal(monthlyAggregate.source, "monthly_totals", "monthly records should become the report source when present");
+assert.equal(monthlyAggregate.dailySales.length, 0, "daily rows in a monthly-total month should be suppressed");
+assert.equal(monthlyAggregate.totalRevenue, 69000, "monthly totals should drive report revenue");
+assert.equal(monthlyAggregate.netProfit, -8730, "monthly totals should drive report net profit");
 
 console.log("Core calculation and bulk-entry validation tests passed.");

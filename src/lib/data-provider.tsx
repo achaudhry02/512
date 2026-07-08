@@ -17,6 +17,7 @@ import type {
   CommandCenterData,
   ImportRecord,
   ImportRow,
+  MonthlyTotal,
   ParsedImportResult,
   ParsedImportRow,
   ResourceRowMap,
@@ -29,6 +30,7 @@ import type {
 
 const tableNames: TableName[] = [
   "daily_sales",
+  "monthly_totals",
   "expenses",
   "fuel_entries",
   "lottery_entries",
@@ -54,8 +56,15 @@ const smartImportTableNames = [
 
 const resourceTableNames: ResourceTableName[] = ["products", "vendors", "employees"];
 
+function orderColumnForTable(table: TableName) {
+  if (table === "payroll_entries") return "date_range_start";
+  if (table === "monthly_totals") return "year";
+  return "date";
+}
+
 const emptyData: CommandCenterData = {
   daily_sales: [],
+  monthly_totals: [],
   expenses: [],
   fuel_entries: [],
   lottery_entries: [],
@@ -102,6 +111,11 @@ type CommandCenterContextValue = {
     id?: string,
   ) => Promise<void>;
   saveBulkMonthlyEntries: (entries: BulkMonthlyEntry[], overwrite: boolean) => Promise<void>;
+  saveMonthlyTotal: (
+    payload: Omit<MonthlyTotal, "id" | "user_id" | "store_id" | "created_at" | "updated_at">,
+    id?: string,
+  ) => Promise<void>;
+  deleteMonthlyTotal: (id: string) => Promise<void>;
   deleteEntry: <T extends TableName>(table: T, id: string) => Promise<void>;
   saveResource: <T extends ResourceTableName>(
     table: T,
@@ -298,14 +312,18 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       if (activeStore) {
         const tableResults = await Promise.all(
           tableNames.map(async (table) => {
-            const { data: rows, error: tableError } = await supabase
+            let query = supabase
               .from(table)
               .select("*")
               .eq("user_id", activeUser.id)
               .eq("store_id", activeStore.id)
-              .order(table === "payroll_entries" ? "date_range_start" : "date", {
-                ascending: false,
-              });
+              .order(orderColumnForTable(table), { ascending: false });
+
+            if (table === "monthly_totals") {
+              query = query.order("month", { ascending: false });
+            }
+
+            const { data: rows, error: tableError } = await query;
 
             if (tableError) {
               throw tableError;
@@ -610,6 +628,62 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [data.daily_sales, refresh, store, user],
+  );
+
+  const saveMonthlyTotal = useCallback(
+    async (
+      payload: Omit<MonthlyTotal, "id" | "user_id" | "store_id" | "created_at" | "updated_at">,
+      id?: string,
+    ) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user || !store) {
+        throw new Error("You must be signed in before saving monthly totals.");
+      }
+
+      if (payload.month < 1 || payload.month > 12) {
+        throw new Error("Month must be between 1 and 12.");
+      }
+
+      const dbPayload = {
+        ...payload,
+        user_id: user.id,
+        store_id: store.id,
+      };
+      const result = id
+        ? await supabase.from("monthly_totals").update(dbPayload).eq("id", id).eq("user_id", user.id)
+        : await supabase.from("monthly_totals").insert(dbPayload);
+
+      if (result.error) {
+        setError(result.error.message);
+        throw result.error;
+      }
+
+      await refresh();
+    },
+    [refresh, store, user],
+  );
+
+  const deleteMonthlyTotal = useCallback(
+    async (id: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) {
+        throw new Error("You must be signed in before deleting monthly totals.");
+      }
+
+      const { error: deleteError } = await supabase
+        .from("monthly_totals")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (deleteError) {
+        setError(deleteError.message);
+        throw deleteError;
+      }
+
+      await refresh();
+    },
+    [refresh, user],
   );
 
   const saveResource = useCallback(
@@ -1232,6 +1306,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       refresh,
       saveEntry,
       saveBulkMonthlyEntries,
+      saveMonthlyTotal,
+      deleteMonthlyTotal,
       deleteEntry,
       saveResource,
       deleteResource,
@@ -1242,6 +1318,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [
       data,
       deleteEntry,
+      deleteMonthlyTotal,
       deleteResource,
       error,
       authLoading,
@@ -1249,6 +1326,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       profile,
       refresh,
       saveEntry,
+      saveMonthlyTotal,
       saveResource,
       saveBulkMonthlyEntries,
       saveSmartImport,
