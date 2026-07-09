@@ -38,7 +38,7 @@ import { StatCard } from "@/components/stat-card";
 import {
   aggregateData,
   analyzeProfitLeaks,
-  bestWorstCategories,
+  bestWorstCategoriesFromData,
   currency,
   dailyChart,
   expensesByCategory,
@@ -91,7 +91,7 @@ export default function DashboardPage() {
   const todaySummary = aggregateData(data, today, today);
   const monthSummary = aggregateData(data, monthStartIso(), monthEndIso());
   const activeSummary = view === "monthly" ? monthSummary : todaySummary;
-  const categorySummary = bestWorstCategories(data.daily_sales);
+  const categorySummary = bestWorstCategoriesFromData(data);
   const expenses = Object.entries(monthSummary.expenseBreakdown ?? expensesByCategory(monthSummary.expenses)).map(([name, value]) => ({
     name,
     value,
@@ -273,7 +273,7 @@ export default function DashboardPage() {
           helper={view === "monthly" ? "Inside sales from monthly totals or summed daily data" : "Inside sales recorded for today"}
           icon={WalletCards}
           label={view === "monthly" ? "Monthly inside sales" : "Total sales today"}
-          trend={view === "monthly" ? monthSummary.source === "monthly_totals" ? "Monthly totals" : "Daily sum" : "Live"}
+          trend={view === "monthly" ? monthSummary.source === "monthly_totals" ? "Monthly totals" : monthSummary.source === "daily_and_pos" ? "Daily + POS" : "Daily sum" : "Live"}
           value={activeSummary.insideSales}
         />
         <StatCard
@@ -375,7 +375,7 @@ export default function DashboardPage() {
             <p className="text-sm font-medium text-slate-500">Recent daily inside sales, fuel profit, deli, and expenses.</p>
           </div>
           <div className="h-80">
-            <ResponsiveContainer height="100%" width="100%">
+            <ResponsiveContainer height="100%" minWidth={0} width="100%">
               <AreaChart data={trend}>
                 <defs>
                   <linearGradient id="inside" x1="0" x2="0" y1="0" y2="1">
@@ -427,7 +427,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="mt-6 h-64">
-            <ResponsiveContainer height="100%" width="100%">
+            <ResponsiveContainer height="100%" minWidth={0} width="100%">
               <BarChart data={categorySummary.ranked.map(([name, value]) => ({ name, value }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="name" stroke="#64748b" />

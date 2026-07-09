@@ -40,6 +40,47 @@ export type SmartImportDestination =
   | "needs_review"
   | "ignore";
 
+export type PosSystemKey =
+  | "gilbarco_passport"
+  | "verifone_commander"
+  | "ncr_counterpoint"
+  | "square"
+  | "clover"
+  | "lightspeed"
+  | "shopify_pos"
+  | "toast"
+  | "shift4"
+  | "heartland"
+  | "cstoreoffice_petrosoft"
+  | "pdi"
+  | "ncr_radiant"
+  | "generic";
+
+export type PosFieldKey =
+  | "date"
+  | "transaction_id"
+  | "department_category"
+  | "item_name"
+  | "sku_barcode"
+  | "quantity_sold"
+  | "gross_sales"
+  | "discounts"
+  | "refunds"
+  | "voids"
+  | "net_sales"
+  | "tax"
+  | "fees"
+  | "cash_total"
+  | "card_total"
+  | "ebt_total"
+  | "gift_card_total"
+  | "other_payment_total"
+  | "fuel_gallons"
+  | "fuel_sales"
+  | "fuel_cost"
+  | "lottery_sales"
+  | "vendor_category_notes";
+
 export type PaymentMethod =
   | "Cash"
   | "Check"
@@ -141,6 +182,71 @@ export type MonthlyTotal = EntryBase & {
   repairs_maintenance: number;
   miscellaneous_expenses: number;
   notes: string | null;
+};
+
+export type PosSystem = EntryBase & {
+  pos_key: PosSystemKey;
+  name: string;
+  enabled: boolean;
+  notes: string | null;
+};
+
+export type PosColumnMapping = EntryBase & {
+  pos_key: PosSystemKey;
+  template_name: string;
+  mapping: Partial<Record<PosFieldKey, string>>;
+  is_default: boolean;
+  notes: string | null;
+};
+
+export type PosImport = EntryBase & {
+  pos_key: PosSystemKey;
+  pos_name: string;
+  original_file_name: string;
+  file_type: string;
+  file_size: number;
+  file_hash: string;
+  row_count: number;
+  imported_row_count: number;
+  status: "previewed" | "imported" | "failed";
+  duplicate_strategy: "skip" | "overwrite";
+  mapping_template_name: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+export type PosImportRow = EntryBase & {
+  pos_import_id: string;
+  pos_key: PosSystemKey;
+  pos_name: string;
+  row_index: number;
+  row_hash: string;
+  transaction_id: string | null;
+  date: string | null;
+  department_category: string | null;
+  item_name: string | null;
+  sku_barcode: string | null;
+  quantity_sold: number;
+  gross_sales: number;
+  discounts: number;
+  refunds: number;
+  voids: number;
+  net_sales: number;
+  tax: number;
+  fees: number;
+  cash_total: number;
+  card_total: number;
+  ebt_total: number;
+  gift_card_total: number;
+  other_payment_total: number;
+  fuel_gallons: number;
+  fuel_sales: number;
+  fuel_cost: number;
+  lottery_sales: number;
+  vendor_category_notes: string | null;
+  duplicate_key: string;
+  import_action: "import" | "skip" | "overwrite";
+  validation_errors: string[];
+  raw_data: Record<string, unknown>;
 };
 
 export type Expense = EntryBase & {
@@ -482,6 +588,10 @@ export type CommandCenterData = {
   lottery_entries: LotteryEntry[];
   deli_entries: DeliEntry[];
   payroll_entries: PayrollEntry[];
+  pos_systems: PosSystem[];
+  pos_imports: PosImport[];
+  pos_column_mappings: PosColumnMapping[];
+  pos_import_rows: PosImportRow[];
   imports: ImportRecord[];
   import_rows: ImportRow[];
   vendors: Vendor[];

@@ -7,6 +7,7 @@ import type {
   LotteryEntry,
   MonthlyTotal,
   PayrollEntry,
+  PosImportRow,
   ProfitLeakFinding,
 } from "@/lib/types";
 import {
@@ -112,6 +113,47 @@ export function insideCategoryRevenue(sale: DailySale) {
   };
 }
 
+export function posRowRevenue(row: PosImportRow) {
+  if (row.net_sales) return row.net_sales;
+  const adjusted = row.gross_sales - row.discounts - row.refunds - row.voids;
+  return adjusted || row.fuel_sales || row.cash_total + row.card_total + row.ebt_total + row.gift_card_total + row.other_payment_total;
+}
+
+export function posRowsInRange(rows: PosImportRow[], start?: string, end?: string, excludedMonthKeys: ReadonlySet<string> = new Set()) {
+  return rows.filter((row) => row.date && inDateRange(row.date, start, end) && !excludedMonthKeys.has(monthKeyFromDate(row.date)));
+}
+
+export function posDepartmentSales(rows: PosImportRow[], start?: string, end?: string) {
+  return posRowsInRange(rows, start, end).reduce<Record<string, number>>((departments, row) => {
+    const category = row.department_category || "Unmapped";
+    departments[category] = (departments[category] ?? 0) + posRowRevenue(row);
+    return departments;
+  }, {});
+}
+
+export function posPaymentBreakdown(rows: PosImportRow[], start?: string, end?: string) {
+  return posRowsInRange(rows, start, end).reduce<Record<string, number>>((payments, row) => {
+    payments.Cash = (payments.Cash ?? 0) + row.cash_total;
+    payments.Card = (payments.Card ?? 0) + row.card_total;
+    payments.EBT = (payments.EBT ?? 0) + row.ebt_total;
+    payments["Gift card"] = (payments["Gift card"] ?? 0) + row.gift_card_total;
+    payments.Other = (payments.Other ?? 0) + row.other_payment_total;
+    return payments;
+  }, {});
+}
+
+export function posSalesBySource(rows: PosImportRow[], start?: string, end?: string) {
+  return Object.values(
+    posRowsInRange(rows, start, end).reduce<Record<string, { name: string; sales: number; rows: number }>>((sources, row) => {
+      const current = sources[row.pos_name] ?? { name: row.pos_name, sales: 0, rows: 0 };
+      current.sales += posRowRevenue(row);
+      current.rows += 1;
+      sources[row.pos_name] = current;
+      return sources;
+    }, {}),
+  ).sort((a, b) => b.sales - a.sales);
+}
+
 export function totalInsideSales(sales: DailySale[]) {
   return sum(sales.map((sale) => sale.inside_sales));
 }
@@ -169,6 +211,7 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
   const payrollEntries = data.payroll_entries.filter((entry) =>
     rangesOverlap(entry.date_range_start, entry.date_range_end, start, end) && !payrollOverlapsAnyMonth(entry, monthlyKeys),
   );
+  const posRows = posRowsInRange(data.pos_import_rows, start, end, monthlyKeys);
 
   const trackedFuelDates = new Set(fuelEntries.map((entry) => entry.date));
   const trackedLotteryDates = new Set(lotteryEntries.map((entry) => entry.date));
@@ -189,22 +232,30 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
   const monthlyPayroll = sum(monthlyTotals.map((entry) => entry.payroll));
   const expensesTotal = baseExpenses + monthlyExpenses;
   const payrollCost = basePayroll + monthlyPayroll;
-  const insideSales = totalInsideSales(dailySales) + sum(monthlyTotals.map(monthlyInsideSales));
+  const posRevenue = sum(posRows.map(posRowRevenue));
+  const posFuelSales = sum(posRows.map((row) => row.fuel_sales));
+  const posFuelCost = sum(posRows.map((row) => row.fuel_cost));
+  const posLotterySales = sum(posRows.map((row) => row.lottery_sales));
+  const posInsideSales = Math.max(0, posRevenue - posFuelSales);
+  const insideSales = totalInsideSales(dailySales) + sum(monthlyTotals.map(monthlyInsideSales)) + posInsideSales;
   const estimatedInsideGrossProfit = sum(dailySales.map((sale) =>
     Math.max(0, sale.inside_sales - sale.lottery_sales - sale.deli_sales - sale.hot_food_sales) * 0.28,
   ));
   const monthlyFuel = sum(monthlyTotals.map(monthlyFuelProfit));
   const monthlyLottery = sum(monthlyTotals.map((entry) => entry.lottery_sales * 0.06));
   const monthlyDeliSales = sum(monthlyTotals.map((entry) => entry.deli_sales + entry.hot_food_sales));
-  const fuelProfitTotal = trackedFuel + dailyFuel + monthlyFuel;
-  const lotteryProfitTotal = trackedLottery + dailyLottery + monthlyLottery;
+  const posFuel = posFuelSales - posFuelCost;
+  const posLottery = posLotterySales * 0.06;
+  const fuelProfitTotal = trackedFuel + dailyFuel + monthlyFuel + posFuel;
+  const lotteryProfitTotal = trackedLottery + dailyLottery + monthlyLottery + posLottery;
   const deliSales = trackedDeliSales + dailyDeliSales + monthlyDeliSales;
   const monthlyGross = sum(monthlyTotals.map(monthlyGrossProfit));
   const dailyGross = trackedFuel + dailyFuel + trackedLottery + dailyLottery + deliGross + estimatedInsideGrossProfit;
-  const grossProfit = dailyGross + monthlyGross;
+  const posGross = posFuel + posLottery + Math.max(0, posInsideSales - posLotterySales) * 0.28;
+  const grossProfit = dailyGross + monthlyGross + posGross;
   const netProfit = grossProfit - baseExpenses - basePayroll - monthlyExpenses;
   const revenue = insideSales + sum(dailySales.map((sale) => sale.fuel_gallons_sold * sale.fuel_retail_price)) +
-    sum(monthlyTotals.map((entry) => entry.fuel_revenue));
+    sum(monthlyTotals.map((entry) => entry.fuel_revenue)) + posFuelSales;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
   const expenseBreakdown = {
     ...expensesByCategory(expenses),
@@ -221,6 +272,7 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
     lotteryEntries,
     deliEntries,
     payrollEntries,
+    posRows,
     insideSales,
     fuelProfit: fuelProfitTotal,
     lotteryProfit: lotteryProfitTotal,
@@ -233,7 +285,7 @@ export function aggregateData(data: CommandCenterData, start?: string, end?: str
     totalRevenue: revenue,
     profitMargin,
     expenseBreakdown,
-    source: monthlyTotals.length ? "monthly_totals" : "daily",
+    source: monthlyTotals.length ? "monthly_totals" : posRows.length ? "daily_and_pos" : "daily",
   };
 }
 
@@ -261,16 +313,49 @@ export function bestWorstCategories(sales: DailySale[]) {
   };
 }
 
+export function bestWorstCategoriesFromData(data: CommandCenterData) {
+  const totals = data.daily_sales.reduce<Record<string, number>>((categories, sale) => {
+    for (const [category, value] of Object.entries(insideCategoryRevenue(sale))) {
+      categories[category] = (categories[category] ?? 0) + value;
+    }
+    return categories;
+  }, {});
+
+  for (const [category, value] of Object.entries(posDepartmentSales(data.pos_import_rows))) {
+    totals[category] = (totals[category] ?? 0) + value;
+  }
+
+  const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  return {
+    best: ranked[0] ?? ["N/A", 0],
+    worst: ranked[ranked.length - 1] ?? ["N/A", 0],
+    ranked,
+  };
+}
+
 export function dailyChart(data: CommandCenterData, days = 14) {
+  const posByDate = data.pos_import_rows.reduce<Record<string, { inside: number; fuelProfit: number; deli: number; expenses: number }>>((daysByDate, row) => {
+    if (!row.date) return daysByDate;
+    const current = daysByDate[row.date] ?? { inside: 0, fuelProfit: 0, deli: 0, expenses: 0 };
+    const revenue = posRowRevenue(row);
+    current.inside += Math.max(0, revenue - row.fuel_sales);
+    current.fuelProfit += row.fuel_sales - row.fuel_cost;
+    if ((row.department_category ?? "").toLowerCase().includes("deli") || (row.department_category ?? "").toLowerCase().includes("food")) {
+      current.deli += revenue;
+    }
+    daysByDate[row.date] = current;
+    return daysByDate;
+  }, {});
+
   return [...data.daily_sales]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-days)
     .map((sale) => ({
       date: sale.date.slice(5),
-      inside: sale.inside_sales,
-      fuelProfit: dailyFuelProfit(sale),
+      inside: sale.inside_sales + (posByDate[sale.date]?.inside ?? 0),
+      fuelProfit: dailyFuelProfit(sale) + (posByDate[sale.date]?.fuelProfit ?? 0),
       lotteryProfit: dailyLotteryProfit(sale),
-      deli: sale.deli_sales + sale.hot_food_sales,
+      deli: sale.deli_sales + sale.hot_food_sales + (posByDate[sale.date]?.deli ?? 0),
       expenses: sum(data.expenses.filter((expense) => expense.date === sale.date).map((expense) => expense.amount)),
     }));
 }

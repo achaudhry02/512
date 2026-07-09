@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { PosMapping, PosPreviewRow } from "@/lib/pos-import";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
   BulkMonthlyEntry,
@@ -20,6 +21,7 @@ import type {
   MonthlyTotal,
   ParsedImportResult,
   ParsedImportRow,
+  PosSystemKey,
   ResourceRowMap,
   ResourceTableName,
   Store,
@@ -54,6 +56,13 @@ const smartImportTableNames = [
   "product_rules",
 ] as const;
 
+const posImportTableNames = [
+  "pos_systems",
+  "pos_imports",
+  "pos_column_mappings",
+  "pos_import_rows",
+] as const;
+
 const resourceTableNames: ResourceTableName[] = ["products", "vendors", "employees"];
 
 function orderColumnForTable(table: TableName) {
@@ -70,6 +79,10 @@ const emptyData: CommandCenterData = {
   lottery_entries: [],
   deli_entries: [],
   payroll_entries: [],
+  pos_systems: [],
+  pos_imports: [],
+  pos_column_mappings: [],
+  pos_import_rows: [],
   imports: [],
   import_rows: [],
   vendors: [],
@@ -124,6 +137,23 @@ type CommandCenterContextValue = {
   ) => Promise<void>;
   deleteResource: <T extends ResourceTableName>(table: T, id: string) => Promise<void>;
   saveSmartImport: (parsedImport: ParsedImportResult, rows: ParsedImportRow[]) => Promise<void>;
+  savePosColumnMapping: (
+    posKey: PosSystemKey,
+    templateName: string,
+    mapping: PosMapping,
+    id?: string,
+  ) => Promise<void>;
+  savePosImport: (payload: {
+    posKey: PosSystemKey;
+    posName: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+    fileHash: string;
+    mappingTemplateName: string | null;
+    duplicateStrategy: "skip" | "overwrite";
+    rows: PosPreviewRow[];
+  }) => Promise<void>;
   updateProfile: (payload: Partial<Pick<UserProfile, "full_name">>) => Promise<void>;
   updateStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
 };
@@ -361,6 +391,33 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         );
 
         for (const [table, rows] of smartImportResults) {
+          nextData[table] = rows as never;
+        }
+
+        const posImportResults = await Promise.all(
+          posImportTableNames.map(async (table) => {
+            const orderColumn =
+              table === "pos_import_rows"
+                ? "row_index"
+                : table === "pos_systems"
+                  ? "name"
+                  : "created_at";
+            const { data: rows, error: tableError } = await supabase
+              .from(table)
+              .select("*")
+              .eq("user_id", activeUser.id)
+              .eq("store_id", activeStore.id)
+              .order(orderColumn, { ascending: table === "pos_import_rows" || table === "pos_systems" });
+
+            if (tableError) {
+              throw tableError;
+            }
+
+            return [table, rows ?? []] as const;
+          }),
+        );
+
+        for (const [table, rows] of posImportResults) {
           nextData[table] = rows as never;
         }
 
@@ -1249,6 +1306,231 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [data.import_rows, data.imports, refresh, store, user],
   );
 
+  const savePosColumnMapping = useCallback(
+    async (posKey: PosSystemKey, templateName: string, mapping: PosMapping, id?: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      }
+      const { data: sessionData } = await supabase.auth.getSession();
+      const activeUser = sessionData.session?.user ?? user;
+      if (!activeUser) {
+        throw new Error("You must be signed in before saving POS mappings.");
+      }
+      let activeStore = store?.user_id === activeUser.id ? store : null;
+      if (!activeStore) {
+        const { data: stores, error: storesError } = await supabase
+          .from("stores")
+          .select("*")
+          .eq("user_id", activeUser.id)
+          .order("created_at", { ascending: true });
+        if (storesError) throw storesError;
+        activeStore = (stores?.[0] as Store | undefined) ?? null;
+      }
+      if (!activeStore) {
+        const { data: newStore, error: newStoreError } = await supabase
+          .from("stores")
+          .insert({
+            user_id: activeUser.id,
+            name: "My Convenience Store",
+            address: null,
+            city: null,
+            state: null,
+            zip: null,
+          })
+          .select("*")
+          .single();
+        if (newStoreError) throw newStoreError;
+        activeStore = newStore as Store;
+      }
+
+      const payload = {
+        user_id: activeUser.id,
+        store_id: activeStore.id,
+        pos_key: posKey,
+        template_name: templateName.trim() || "Default mapping",
+        mapping,
+        is_default: false,
+        notes: null,
+      };
+
+      const result = id
+        ? await supabase.from("pos_column_mappings").update(payload).eq("id", id).eq("user_id", activeUser.id)
+        : await supabase
+          .from("pos_column_mappings")
+          .upsert(payload, { onConflict: "user_id,store_id,pos_key,template_name" });
+
+      if (result.error) {
+        setError(result.error.message);
+        throw result.error;
+      }
+
+      await refresh();
+    },
+    [refresh, store, user],
+  );
+
+  const savePosImport = useCallback(
+    async ({
+      duplicateStrategy,
+      fileHash,
+      fileName,
+      fileSize,
+      fileType,
+      mappingTemplateName,
+      posKey,
+      posName,
+      rows,
+    }: {
+      posKey: PosSystemKey;
+      posName: string;
+      fileName: string;
+      fileType: string;
+      fileSize: number;
+      fileHash: string;
+      mappingTemplateName: string | null;
+      duplicateStrategy: "skip" | "overwrite";
+      rows: PosPreviewRow[];
+    }) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      }
+      const { data: sessionData } = await supabase.auth.getSession();
+      const activeUser = sessionData.session?.user ?? user;
+      if (!activeUser) {
+        throw new Error("You must be signed in before saving POS imports.");
+      }
+      let activeStore = store?.user_id === activeUser.id ? store : null;
+      if (!activeStore) {
+        const { data: stores, error: storesError } = await supabase
+          .from("stores")
+          .select("*")
+          .eq("user_id", activeUser.id)
+          .order("created_at", { ascending: true });
+        if (storesError) throw storesError;
+        activeStore = (stores?.[0] as Store | undefined) ?? null;
+      }
+      if (!activeStore) {
+        const { data: newStore, error: newStoreError } = await supabase
+          .from("stores")
+          .insert({
+            user_id: activeUser.id,
+            name: "My Convenience Store",
+            address: null,
+            city: null,
+            state: null,
+            zip: null,
+          })
+          .select("*")
+          .single();
+        if (newStoreError) throw newStoreError;
+        activeStore = newStore as Store;
+      }
+
+      const rowsWithHardErrors = rows.filter((row) =>
+        row.import_action !== "skip" &&
+        row.validation_errors.some((message) => !message.startsWith("Duplicate POS")),
+      );
+      if (rowsWithHardErrors.length) {
+        throw new Error(`Fix validation errors before saving. First bad row: ${rowsWithHardErrors[0].row_index}.`);
+      }
+
+      const candidateRows = rows.filter((row) => row.import_action !== "skip");
+      if (!candidateRows.length) {
+        throw new Error("No POS rows selected for import.");
+      }
+
+      const candidateDuplicateKeys = candidateRows.map((row) => row.duplicate_key);
+      const { data: existingDuplicateRows, error: duplicateLookupError } = await supabase
+        .from("pos_import_rows")
+        .select("duplicate_key")
+        .eq("user_id", activeUser.id)
+        .eq("store_id", activeStore.id)
+        .eq("pos_key", posKey)
+        .in("duplicate_key", candidateDuplicateKeys);
+
+      if (duplicateLookupError) {
+        setError(duplicateLookupError.message);
+        throw duplicateLookupError;
+      }
+
+      const existingDuplicateKeys = new Set((existingDuplicateRows ?? []).map((row: { duplicate_key: string }) => row.duplicate_key));
+      const rowsToSave = duplicateStrategy === "skip"
+        ? candidateRows.filter((row) => !existingDuplicateKeys.has(row.duplicate_key))
+        : candidateRows;
+
+      if (!rowsToSave.length) {
+        await refresh();
+        return;
+      }
+
+      const duplicateKeys = rowsToSave.map((row) => row.duplicate_key);
+      if (duplicateStrategy === "overwrite" && duplicateKeys.length) {
+        const { error: deleteError } = await supabase
+          .from("pos_import_rows")
+          .delete()
+          .eq("user_id", activeUser.id)
+          .eq("store_id", activeStore.id)
+          .eq("pos_key", posKey)
+          .in("duplicate_key", duplicateKeys);
+
+        if (deleteError) {
+          setError(deleteError.message);
+          throw deleteError;
+        }
+      }
+
+      const { data: importRecord, error: importError } = await supabase
+        .from("pos_imports")
+        .insert({
+          user_id: activeUser.id,
+          store_id: activeStore.id,
+          pos_key: posKey,
+          pos_name: posName,
+          original_file_name: fileName,
+          file_type: fileType,
+          file_size: fileSize,
+          file_hash: fileHash,
+          row_count: rows.length,
+          imported_row_count: rowsToSave.length,
+          status: "imported",
+          duplicate_strategy: duplicateStrategy,
+          mapping_template_name: mappingTemplateName,
+          metadata: {
+            skipped_rows: rows.filter((row) => row.import_action === "skip").length,
+            validation_error_rows: rows.filter((row) => row.validation_errors.length).length,
+          },
+        })
+        .select("*")
+        .single();
+
+      if (importError) {
+        setError(importError.message);
+        throw importError;
+      }
+
+      const posImportId = importRecord.id as string;
+      const { error: rowsError } = await supabase.from("pos_import_rows").insert(
+        rowsToSave.map((row) => ({
+          ...row,
+          pos_import_id: posImportId,
+          user_id: activeUser.id,
+          store_id: activeStore.id,
+          import_action: duplicateStrategy === "overwrite" ? "overwrite" : row.import_action,
+        })),
+      );
+
+      if (rowsError) {
+        setError(rowsError.message);
+        throw rowsError;
+      }
+
+      await refresh();
+    },
+    [refresh, store, user],
+  );
+
   const updateProfile = useCallback(
     async (payload: Partial<Pick<UserProfile, "full_name">>) => {
       const supabase = getSupabaseBrowserClient();
@@ -1312,6 +1594,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveResource,
       deleteResource,
       saveSmartImport,
+      savePosColumnMapping,
+      savePosImport,
       updateProfile,
       updateStore,
     }),
@@ -1330,6 +1614,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveResource,
       saveBulkMonthlyEntries,
       saveSmartImport,
+      savePosColumnMapping,
+      savePosImport,
       store,
       updateProfile,
       updateStore,

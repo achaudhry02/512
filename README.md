@@ -35,6 +35,8 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Live Supabase-backed data on every dashboard, report, import, and settings page
 - Profit Leak Finder alerts for high expenses, low fuel margin, deli waste, payroll drag, vendor increases, and low-margin days
 - Smart Import for PDF, Excel, and CSV files with editable review before saving
+- POS Integrations for flexible CSV imports from Gilbarco Passport, Verifone Commander, NCR Counterpoint, Square, Clover, Lightspeed, Shopify POS, Toast, Shift4, Heartland, CStoreOffice / Petrosoft, PDI, and NCR / Radiant
+- POS column mapping templates, duplicate handling, import history, payment breakdowns, department sales, fuel gallons/sales, tax/fees, discounts, refunds, voids, and unmapped/error reports
 - Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
 - Product Sales Breakdown, Vendor Spend, and Category Profit reports
 - Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
@@ -181,6 +183,10 @@ The schema creates:
 - `deli_entries`
 - `payroll_entries`
 - `employees`
+- `pos_systems`
+- `pos_imports`
+- `pos_column_mappings`
+- `pos_import_rows`
 - `imports`
 - `import_rows`
 - `products`
@@ -267,6 +273,105 @@ Fields include month, year, grocery, deli, hot food, fuel gallons, fuel revenue,
 The form calculates total sales, total expenses, fuel margin, fuel profit, gross profit, estimated net profit, expense percentage, gross margin, and net margin. It supports save, edit, delete, browser print/PDF, and Excel-compatible export.
 
 Reports and the dashboard use monthly totals for months where a `monthly_totals` row exists. Daily records remain available and are still used for months without a monthly total.
+
+## POS Integrations
+
+Open `POS Integrations` from the sidebar.
+
+Supported POS presets:
+
+- Gilbarco Passport
+- Verifone Commander
+- NCR Counterpoint
+- Square
+- Clover
+- Lightspeed
+- Shopify POS
+- Toast
+- Shift4
+- Heartland
+- CStoreOffice / Petrosoft
+- PDI
+- NCR / Radiant
+- Generic POS CSV
+
+Workflow:
+
+1. Select the POS system.
+2. Upload a CSV export from the POS or back-office system.
+3. Map each POS column to the app's internal fields. Missing fields can stay skipped.
+4. Save the mapping template for that POS.
+5. Preview rows before saving.
+6. Fix missing dates or bad numbers.
+7. Choose whether duplicate rows should be skipped or overwritten.
+8. Save the import.
+
+Duplicate prevention uses the POS source, date, and transaction/import ID when available. If a transaction ID is missing, the importer falls back to date, row number, department, and item. Imported POS rows are stored separately from manual Daily Entry, Bulk Entry, and Monthly Totals records.
+
+Internal POS fields:
+
+```csv
+date,transaction_id,department_category,item_name,sku_barcode,quantity_sold,gross_sales,discounts,refunds,voids,net_sales,tax,fees,cash_total,card_total,ebt_total,gift_card_total,other_payment_total,fuel_gallons,fuel_sales,fuel_cost,lottery_sales,vendor_category_notes
+```
+
+Sample files:
+
+- `samples/uploads/generic-pos-import-template.csv`
+- `samples/uploads/gilbarco-passport-sample.csv`
+- `samples/uploads/square-pos-sample.csv`
+- `samples/uploads/clover-pos-sample.csv`
+- `samples/uploads/shopify-pos-sample.csv`
+
+Dashboard and reports include POS rows along with manual daily entries. If a Monthly Totals record exists for a month, that monthly total remains the source of truth for that month to avoid double counting detailed daily/POS rows.
+
+POS reports include:
+
+- POS import history
+- Sales by POS source
+- Department/category sales from POS
+- Payment breakdown
+- Fuel sales and gallons
+- Unmapped rows and validation errors
+
+### Authenticated POS browser test
+
+For local POS import testing, create the demo browser-test account in your development Supabase project:
+
+```sql
+-- Run in the Supabase SQL editor after supabase/schema.sql.
+\i supabase/test-account.sql
+```
+
+If your SQL editor does not support `\i`, open `supabase/test-account.sql`, paste the file contents, and run it.
+
+Default test login:
+
+```text
+Email: codex.pos.tester@gmail.com
+Password: TestPass123!
+```
+
+Install Playwright's Chromium browser once:
+
+```bash
+npx playwright install chromium
+```
+
+Start the app, then run the authenticated POS flow:
+
+```bash
+npm run dev
+npm run test:pos-browser
+```
+
+The browser test signs in through `/login`, opens `/pos-integrations`, uploads the generic, Gilbarco Passport, Square, Clover, and Shopify POS sample CSV files, verifies mapping/preview/validation, saves imports, verifies duplicate skip and overwrite, then checks dashboard and reports for POS source, department, payment, and fuel data.
+
+Optional overrides:
+
+```bash
+POS_TEST_BASE_URL=http://localhost:3000 POS_TEST_EMAIL=you@example.com POS_TEST_PASSWORD=secret npm run test:pos-browser
+POS_TEST_HEADED=1 npm run test:pos-browser
+```
 
 ### Learning system
 

@@ -10,7 +10,7 @@ import {
   parseBulkCsvRecords,
   validateBulkRows,
 } from "../src/lib/bulk-entry";
-import { aggregateData, rangesOverlap } from "../src/lib/calculations";
+import { aggregateData, posPaymentBreakdown, posSalesBySource, rangesOverlap } from "../src/lib/calculations";
 import {
   emptyMonthlyTotals,
   monthlyFuelMargin,
@@ -21,7 +21,12 @@ import {
   monthlyTotalExpenses,
   monthlyTotalSales,
 } from "../src/lib/monthly-totals";
-import type { CommandCenterData, DailySale, MonthlyTotal } from "../src/lib/types";
+import {
+  defaultPosMappings,
+  mapRowsToPosPreview,
+  validatePosPreviewRows,
+} from "../src/lib/pos-import";
+import type { CommandCenterData, DailySale, MonthlyTotal, PosImportRow } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -113,6 +118,7 @@ const aggregateFixture: CommandCenterData = {
   fuel_entries: [{ id: "fuel", user_id: "user", store_id: "store", date: "2026-06-01", gallons_sold: 100, retail_price_per_gallon: 3.6, cost_per_gallon: 3.3, notes: null }],
   lottery_entries: [], deli_entries: [], expenses: [],
   payroll_entries: [{ id: "pay", user_id: "user", store_id: "store", employee_name: "Test", date_range_start: "2026-05-01", date_range_end: "2026-07-01", hours_worked: 10, hourly_rate: 20, notes: null }],
+  pos_systems: [], pos_imports: [], pos_column_mappings: [], pos_import_rows: [],
   imports: [], import_rows: [], vendors: [], employees: [], product_categories: [], products: [], product_sales: [],
   department_sales: [], store_sales_summaries: [], fuel_grade_sales: [], tender_sales: [], category_rules: [], vendor_rules: [], product_rules: [],
 };
@@ -133,5 +139,63 @@ assert.equal(monthlyAggregate.source, "monthly_totals", "monthly records should 
 assert.equal(monthlyAggregate.dailySales.length, 0, "daily rows in a monthly-total month should be suppressed");
 assert.equal(monthlyAggregate.totalRevenue, 69000, "monthly totals should drive report revenue");
 assert.equal(monthlyAggregate.netProfit, -8730, "monthly totals should drive report net profit");
+
+const posPreview = mapRowsToPosPreview(
+  [
+    {
+      Date: "2026-06-03",
+      "Transaction ID": "SQ-1",
+      Category: "Grocery",
+      Item: "Water",
+      SKU: "W1",
+      Qty: "2",
+      "Gross Sales": "$5.00",
+      Discounts: "0",
+      Refunds: "0",
+      "Net Sales": "5.00",
+      Tax: "0.30",
+      Cash: "5.30",
+      Card: "0",
+    },
+    {
+      Date: "2026-06-03",
+      "Transaction ID": "SQ-1",
+      Category: "Grocery",
+      Item: "Water",
+      SKU: "W1",
+      Qty: "2",
+      "Gross Sales": "$5.00",
+      Discounts: "0",
+      Refunds: "0",
+      "Net Sales": "5.00",
+      Tax: "0.30",
+      Cash: "5.30",
+      Card: "0",
+    },
+  ],
+  defaultPosMappings.square,
+  "square",
+  "Square",
+);
+assert.equal(posPreview[0].date, "2026-06-03", "POS mapping should normalize dates");
+assert.equal(posPreview[0].net_sales, 5, "POS mapping should parse currency numbers");
+assert.ok(validatePosPreviewRows(posPreview).some((issue) => issue.includes("duplicate key")), "POS duplicate date/source/transaction validation should be reported");
+
+const posRow: PosImportRow = {
+  ...posPreview[0],
+  id: "pos-row",
+  user_id: "user",
+  store_id: "store",
+  pos_import_id: "pos-import",
+};
+const posAggregate = aggregateData(
+  { ...aggregateFixture, pos_import_rows: [posRow] },
+  "2026-06-01",
+  "2026-06-30",
+);
+assert.equal(posAggregate.source, "daily_and_pos", "POS rows should mark daily reports as daily plus POS");
+assert.equal(posAggregate.insideSales, aggregate.insideSales + 5, "POS net sales should be added to inside sales");
+assert.deepEqual(posSalesBySource([posRow]), [{ name: "Square", sales: 5, rows: 1 }], "POS sales by source should aggregate imported rows");
+assert.equal(posPaymentBreakdown([posRow]).Cash, 5.3, "POS payment breakdown should include cash totals");
 
 console.log("Core calculation and bulk-entry validation tests passed.");

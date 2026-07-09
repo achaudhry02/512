@@ -12,6 +12,10 @@ import {
   monthEndIso,
   monthStartIso,
   percent,
+  posDepartmentSales,
+  posPaymentBreakdown,
+  posSalesBySource,
+  sum,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
 import { expenseCategories } from "@/lib/types";
@@ -36,13 +40,23 @@ export default function ReportsPage() {
     vendors[expense.vendor_name] = (vendors[expense.vendor_name] ?? 0) + expense.amount;
     return vendors;
   }, {})).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const posSourceSpend = posSalesBySource(data.pos_import_rows, startDate || undefined, endDate || undefined);
+  const posDepartments = Object.entries(posDepartmentSales(data.pos_import_rows, startDate || undefined, endDate || undefined))
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+  const posPayments = Object.entries(posPaymentBreakdown(data.pos_import_rows, startDate || undefined, endDate || undefined))
+    .filter(([, value]) => value > 0)
+    .map(([name, value]) => ({ name, value }));
+  const posFuelGallons = sum(report.posRows.map((row) => row.fuel_gallons));
+  const posFuelSales = sum(report.posRows.map((row) => row.fuel_sales));
+  const posErrorRows = data.pos_import_rows.filter((row) => row.validation_errors.length);
 
   function exportCsv() {
     const rows: (string | number)[][] = [
       ["Convenience Store Command Center P&L"],
       ["Store", store?.name ?? "Store"],
       ["Date range", `${startDate} to ${endDate}`],
-      ["Data source", report.source === "monthly_totals" ? "Monthly totals entries where available" : "Daily data"],
+      ["Data source", report.source === "monthly_totals" ? "Monthly totals entries where available" : report.source === "daily_and_pos" ? "Daily and POS import data" : "Daily data"],
       [],
       ["Metric", "Amount"],
       ["Total revenue", report.totalRevenue],
@@ -53,6 +67,8 @@ export default function ReportsPage() {
       ["Payroll", report.payrollCost],
       ["Net profit", report.netProfit],
       ["Inventory value", inventoryValue],
+      ["POS fuel gallons", posFuelGallons],
+      ["POS fuel sales", posFuelSales],
       ["Profit margin", `${report.profitMargin.toFixed(2)}%`],
       [],
       ["Expenses by category", "Amount"],
@@ -102,7 +118,7 @@ export default function ReportsPage() {
           value={endDate}
         />
         <span className="rounded-full bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-700 ring-1 ring-cyan-100">
-          {report.source === "monthly_totals" ? "Using monthly totals where available" : "Using daily data"}
+          {report.source === "monthly_totals" ? "Using monthly totals where available" : report.source === "daily_and_pos" ? "Using daily + POS import data" : "Using daily data"}
         </span>
       </div>
 
@@ -160,10 +176,54 @@ export default function ReportsPage() {
 
       <div className="mt-8 grid gap-6 xl:grid-cols-2">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Sales by POS source</h3>
+          <p className="mt-1 text-sm text-slate-500">Imported POS rows grouped by source system.</p>
+          <div className="mt-5 h-72">
+            {posSourceSpend.length ? <ResponsiveContainer height="100%" minWidth={0} width="100%"><BarChart data={posSourceSpend}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="sales" fill="#0f766e" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No POS imports in this range.</p>}
+          </div>
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">POS payment breakdown</h3>
+          <p className="mt-1 text-sm text-slate-500">Cash, card, EBT, gift card, and other imported tender totals.</p>
+          <div className="mt-5 h-72">
+            {posPayments.length ? <ResponsiveContainer height="100%" minWidth={0} width="100%"><BarChart data={posPayments}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="value" fill="#7c3aed" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No POS tender totals in this range.</p>}
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-8 grid gap-6 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Department sales from POS</h3>
+          <p className="mt-1 text-sm text-slate-500">Department/category sales imported from POS files.</p>
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-full text-sm"><thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><tr><th className="py-3">Department</th><th className="py-3 text-right">Sales</th></tr></thead><tbody className="divide-y divide-slate-100">{posDepartments.slice(0, 10).map((department) => <tr key={department.name}><td className="py-3 font-bold text-slate-800">{department.name}</td><td className="py-3 text-right font-black">{currency(department.value)}</td></tr>)}</tbody></table>
+            {!posDepartments.length ? <p className="py-8 text-center text-sm text-slate-500">No POS department sales in this range.</p> : null}
+          </div>
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">POS fuel and unmapped rows</h3>
+          <p className="mt-1 text-sm text-slate-500">Fuel volume/sales plus rows that carried validation notes.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Fuel gallons</p><p className="mt-2 text-xl font-black">{posFuelGallons.toLocaleString()}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Fuel sales</p><p className="mt-2 text-xl font-black">{currency(posFuelSales)}</p></div>
+          </div>
+          <div className="mt-5 space-y-2">
+            {posErrorRows.slice(0, 5).map((row) => (
+              <div className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800" key={row.id}>
+                {row.pos_name} row {row.row_index}: {row.validation_errors.join(", ")}
+              </div>
+            ))}
+            {!posErrorRows.length ? <p className="text-sm text-slate-500">No saved POS error rows.</p> : null}
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-8 grid gap-6 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
           <h3 className="text-xl font-black text-slate-950">Vendor spend</h3>
           <p className="mt-1 text-sm text-slate-500">Invoice and expense totals for the selected date range.</p>
           <div className="mt-5 h-72">
-            {vendorSpend.length ? <ResponsiveContainer height="100%" width="100%"><BarChart data={vendorSpend}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="value" fill="#0891b2" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No vendor expenses in this range.</p>}
+            {vendorSpend.length ? <ResponsiveContainer height="100%" minWidth={0} width="100%"><BarChart data={vendorSpend}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="value" fill="#0891b2" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No vendor expenses in this range.</p>}
           </div>
         </section>
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">

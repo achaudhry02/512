@@ -903,3 +903,155 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on table public.monthly_totals to authenticated;
+
+create table if not exists public.pos_systems (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  pos_key text not null,
+  name text not null,
+  enabled boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, pos_key)
+);
+
+create table if not exists public.pos_imports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  pos_key text not null,
+  pos_name text not null,
+  original_file_name text not null,
+  file_type text not null,
+  file_size bigint not null default 0,
+  file_hash text not null,
+  row_count integer not null default 0,
+  imported_row_count integer not null default 0,
+  status text not null default 'imported' check (status in ('previewed', 'imported', 'failed')),
+  duplicate_strategy text not null default 'skip' check (duplicate_strategy in ('skip', 'overwrite')),
+  mapping_template_name text,
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.pos_column_mappings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  pos_key text not null,
+  template_name text not null,
+  mapping jsonb not null default '{}'::jsonb,
+  is_default boolean not null default false,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, pos_key, template_name)
+);
+
+create table if not exists public.pos_import_rows (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  pos_import_id uuid not null references public.pos_imports(id) on delete cascade,
+  pos_key text not null,
+  pos_name text not null,
+  row_index integer not null,
+  row_hash text not null,
+  transaction_id text,
+  date date,
+  department_category text,
+  item_name text,
+  sku_barcode text,
+  quantity_sold numeric(12,3) not null default 0,
+  gross_sales numeric(12,2) not null default 0,
+  discounts numeric(12,2) not null default 0,
+  refunds numeric(12,2) not null default 0,
+  voids numeric(12,2) not null default 0,
+  net_sales numeric(12,2) not null default 0,
+  tax numeric(12,2) not null default 0,
+  fees numeric(12,2) not null default 0,
+  cash_total numeric(12,2) not null default 0,
+  card_total numeric(12,2) not null default 0,
+  ebt_total numeric(12,2) not null default 0,
+  gift_card_total numeric(12,2) not null default 0,
+  other_payment_total numeric(12,2) not null default 0,
+  fuel_gallons numeric(12,3) not null default 0,
+  fuel_sales numeric(12,2) not null default 0,
+  fuel_cost numeric(12,2) not null default 0,
+  lottery_sales numeric(12,2) not null default 0,
+  vendor_category_notes text,
+  duplicate_key text not null,
+  import_action text not null default 'import' check (import_action in ('import', 'skip', 'overwrite')),
+  validation_errors text[] not null default '{}',
+  raw_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, row_hash),
+  unique (user_id, store_id, duplicate_key)
+);
+
+create index if not exists pos_imports_user_store_created_idx on public.pos_imports(user_id, store_id, created_at desc);
+create index if not exists pos_import_rows_user_store_date_idx on public.pos_import_rows(user_id, store_id, date desc);
+create index if not exists pos_import_rows_user_store_pos_idx on public.pos_import_rows(user_id, store_id, pos_key, date desc);
+create index if not exists pos_column_mappings_user_store_pos_idx on public.pos_column_mappings(user_id, store_id, pos_key);
+
+drop trigger if exists set_pos_systems_updated_at on public.pos_systems;
+create trigger set_pos_systems_updated_at
+before update on public.pos_systems
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_pos_imports_updated_at on public.pos_imports;
+create trigger set_pos_imports_updated_at
+before update on public.pos_imports
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_pos_column_mappings_updated_at on public.pos_column_mappings;
+create trigger set_pos_column_mappings_updated_at
+before update on public.pos_column_mappings
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_pos_import_rows_updated_at on public.pos_import_rows;
+create trigger set_pos_import_rows_updated_at
+before update on public.pos_import_rows
+for each row execute function public.set_updated_at();
+
+alter table public.pos_systems enable row level security;
+alter table public.pos_imports enable row level security;
+alter table public.pos_column_mappings enable row level security;
+alter table public.pos_import_rows enable row level security;
+
+drop policy if exists "Users can manage their own POS systems" on public.pos_systems;
+create policy "Users can manage their own POS systems" on public.pos_systems
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own POS imports" on public.pos_imports;
+create policy "Users can manage their own POS imports" on public.pos_imports
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own POS mappings" on public.pos_column_mappings;
+create policy "Users can manage their own POS mappings" on public.pos_column_mappings
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own POS import rows" on public.pos_import_rows;
+create policy "Users can manage their own POS import rows" on public.pos_import_rows
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+grant select, insert, update, delete on table public.pos_systems to authenticated;
+grant select, insert, update, delete on table public.pos_imports to authenticated;
+grant select, insert, update, delete on table public.pos_column_mappings to authenticated;
+grant select, insert, update, delete on table public.pos_import_rows to authenticated;
