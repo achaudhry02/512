@@ -282,12 +282,25 @@ Upload flow:
 1. Upload a PDF, Excel, or CSV file.
 2. The server parses the file and extracts dates, vendors, descriptions, products, SKU/UPC, quantities, unit cost, unit retail price, totals, and raw row data.
 3. The rule-based categorization engine suggests a category, confidence score, and import destination.
-4. Review every row before saving.
-5. Edit category, vendor, product, date, amount, and destination as needed.
-6. Toggle rows off if they should be ignored.
-7. Click `Confirm Import`.
+4. Filter rows by needs review, expenses, product sales, department sales, ignored, or duplicate.
+5. Review every row before saving, or use bulk actions to mark reviewed, ignore selected rows, change category, change destination, or assign a vendor.
+6. Edit category, vendor, product, date, amount, and destination as needed.
+7. Toggle rows off if they should be ignored.
+8. Click `Confirm Import`.
 
-Rows are not saved automatically. File hashes prevent duplicate file imports, and row hashes prevent duplicate row imports.
+Rows are not saved automatically. File hashes prevent duplicate file imports. Row hashes, invoice numbers, bank transaction IDs, and vendor/date/amount keys help identify duplicate rows.
+
+Smart Import records an import lifecycle status:
+
+- `draft`
+- `reviewed`
+- `posted`
+- `rejected`
+- `rolled_back`
+
+Posted imports appear in Import History. Use `Roll back` to remove destination rows created by that import while keeping the original import and row audit trail.
+
+Bank-statement rows such as card processor deposits, cash deposits, loan payments, owner draws, transfers, and fees can be routed to `cash_flow_entries`. Loan payments, owner draws, and transfers are tracked separately from normal operating expenses so they do not distort profit reporting.
 
 ## Entry Modes
 

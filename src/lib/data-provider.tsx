@@ -47,6 +47,7 @@ const tableNames: TableName[] = [
   "lottery_entries",
   "deli_entries",
   "payroll_entries",
+  "cash_flow_entries",
 ];
 
 const smartImportTableNames = [
@@ -60,6 +61,7 @@ const smartImportTableNames = [
   "store_sales_summaries",
   "fuel_grade_sales",
   "tender_sales",
+  "cash_flow_entries",
   "category_rules",
   "vendor_rules",
   "product_rules",
@@ -96,6 +98,7 @@ const emptyData: CommandCenterData = {
   lottery_entries: [],
   deli_entries: [],
   payroll_entries: [],
+  cash_flow_entries: [],
   pos_systems: [],
   pos_imports: [],
   pos_column_mappings: [],
@@ -155,6 +158,7 @@ type CommandCenterContextValue = {
   ) => Promise<void>;
   deleteResource: <T extends ResourceTableName>(table: T, id: string) => Promise<void>;
   saveSmartImport: (parsedImport: ParsedImportResult, rows: ParsedImportRow[]) => Promise<void>;
+  rollbackSmartImport: (importId: string) => Promise<void>;
   savePosColumnMapping: (
     posKey: PosSystemKey,
     templateName: string,
@@ -196,7 +200,26 @@ function rowAmount(row: ParsedImportRow) {
   return row.total || row.quantity * (row.unitRetailPrice || row.unitCost);
 }
 
+function rowDuplicateKey(row: ParsedImportRow) {
+  const date = row.date ?? "no-date";
+  const vendor = normalizedVendor(row.vendor || "unknown");
+  const amount = rowAmount(row).toFixed(2);
+  const invoice = String(row.rawData.invoice_number ?? row.rawData.invoice ?? row.rawData["invoice #"] ?? "").trim();
+  const bankTransaction = String(
+    row.rawData.transaction_id ?? row.rawData.transaction ?? row.rawData["transaction id"] ?? row.rawData.check_number ?? "",
+  ).trim();
+
+  if (invoice) return `invoice:${vendor}:${invoice}`;
+  if (bankTransaction) return `bank:${vendor}:${bankTransaction}`;
+  return `vendor-date-amount:${vendor}:${date}:${amount}`;
+}
+
 function importRowPayload(row: ParsedImportRow, importId: string, userId: string, storeId: string): Omit<ImportRow, "id"> {
+  const ignored = row.ignored || row.importDestination === "ignore";
+  const rowStatus = row.rowStatus ?? (
+    ignored ? "ignored" : row.duplicateReason ? "duplicate" : row.needsReview || row.importDestination === "needs_review" ? "draft" : "reviewed"
+  );
+
   return {
     user_id: userId,
     store_id: storeId,
@@ -216,7 +239,12 @@ function importRowPayload(row: ParsedImportRow, importId: string, userId: string
     confidence_score: row.confidenceScore,
     import_destination: row.importDestination,
     needs_review: row.needsReview,
-    ignored: row.ignored || row.importDestination === "ignore",
+    ignored,
+    row_status: rowStatus,
+    duplicate_key: row.duplicateKey ?? rowDuplicateKey(row),
+    duplicate_reason: row.duplicateReason ?? null,
+    reviewed_at: rowStatus === "reviewed" || rowStatus === "posted" ? new Date().toISOString() : null,
+    posted_at: null,
     raw_data: row.rawData,
   };
 }
@@ -235,10 +263,12 @@ function importRecordPayload(
     file_size: parsedImport.fileSize,
     file_hash: parsedImport.fileHash,
     row_count: rowCount,
-    status: "imported",
+    status: "posted",
     metadata: {
       parser: parsedImport.parser,
       warnings: parsedImport.warnings,
+      file_hash: parsedImport.fileHash,
+      posted_records: [],
     },
   };
 }
@@ -852,9 +882,17 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
   const saveSmartImport = useCallback(
     async (parsedImport: ParsedImportResult, rows: ParsedImportRow[]) => {
-      const acceptedRows = rows.filter(
-        (row) => !row.ignored && row.importDestination !== "ignore" && row.importDestination !== "needs_review",
-      );
+      const existingDuplicateKeys = new Set(data.import_rows.map((row) => row.duplicate_key).filter(Boolean));
+      const acceptedRows = rows.filter((row) => {
+        const duplicateKey = row.duplicateKey ?? rowDuplicateKey(row);
+        return (
+          !row.ignored &&
+          row.importDestination !== "ignore" &&
+          row.importDestination !== "needs_review" &&
+          !row.duplicateReason &&
+          !existingDuplicateKeys.has(duplicateKey)
+        );
+      });
 
       if (data.imports.some((record) => record.file_hash === parsedImport.fileHash)) {
         console.error("Smart Import duplicate file:", {
@@ -968,6 +1006,13 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const importRowIdByHash = new Map(
         (insertedImportRows ?? []).map((row: { id: string; row_hash: string }) => [row.row_hash, row.id]),
       );
+      const postedRecords: Array<{ table: string; id: string; row_hash: string }> = [];
+
+      function recordPosted(table: string, id: string | undefined, row: ParsedImportRow) {
+        if (id) {
+          postedRecords.push({ table, id, row_hash: row.rowHash });
+        }
+      }
 
       async function ensureVendor(row: ParsedImportRow) {
         const name = row.vendor || "Unknown vendor";
@@ -1163,7 +1208,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const importRowId = importRowIdByHash.get(row.rowHash) ?? null;
 
         if (row.importDestination === "expenses") {
-          const { error: expenseError } = await supabase.from("expenses").insert({
+          const { data: expense, error: expenseError } = await supabase.from("expenses").insert({
             user_id: userId,
             store_id: storeId,
             date,
@@ -1172,13 +1217,14 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             amount,
             payment_method: "Other",
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-          });
+          }).select("id").single();
           if (expenseError) {
             console.error("Smart Import expenses insert failed:", expenseError, { row, userId, storeId });
             throw expenseError;
           }
+          recordPosted("expenses", expense?.id as string | undefined, row);
         } else if (row.importDestination === "fuel_entries") {
-          const { error: fuelError } = await supabase.from("fuel_entries").insert({
+          const { data: fuelEntry, error: fuelError } = await supabase.from("fuel_entries").insert({
             user_id: userId,
             store_id: storeId,
             date,
@@ -1186,13 +1232,14 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             cost_per_gallon: row.unitCost,
             retail_price_per_gallon: row.unitRetailPrice,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-          });
+          }).select("id").single();
           if (fuelError) {
             console.error("Smart Import fuel_entries insert failed:", fuelError, { row, userId, storeId });
             throw fuelError;
           }
+          recordPosted("fuel_entries", fuelEntry?.id as string | undefined, row);
         } else if (row.importDestination === "lottery_entries") {
-          const { error: lotteryError } = await supabase.from("lottery_entries").insert({
+          const { data: lotteryEntry, error: lotteryError } = await supabase.from("lottery_entries").insert({
             user_id: userId,
             store_id: storeId,
             date,
@@ -1200,13 +1247,14 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             lottery_payouts: 0,
             commission_percentage: 6,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-          });
+          }).select("id").single();
           if (lotteryError) {
             console.error("Smart Import lottery_entries insert failed:", lotteryError, { row, userId, storeId });
             throw lotteryError;
           }
+          recordPosted("lottery_entries", lotteryEntry?.id as string | undefined, row);
         } else if (row.importDestination === "deli_entries") {
-          const { error: deliError } = await supabase.from("deli_entries").insert({
+          const { data: deliEntry, error: deliError } = await supabase.from("deli_entries").insert({
             user_id: userId,
             store_id: storeId,
             date,
@@ -1214,13 +1262,14 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             food_cost: row.quantity * row.unitCost,
             waste_amount: 0,
             notes: `Imported from ${parsedImport.fileName}: ${row.description}`,
-          });
+          }).select("id").single();
           if (deliError) {
             console.error("Smart Import deli_entries insert failed:", deliError, { row, userId, storeId });
             throw deliError;
           }
+          recordPosted("deli_entries", deliEntry?.id as string | undefined, row);
         } else if (row.importDestination === "payroll_entries") {
-          const { error: payrollError } = await supabase.from("payroll_entries").insert({
+          const { data: payrollEntry, error: payrollError } = await supabase.from("payroll_entries").insert({
             user_id: userId,
             store_id: storeId,
             employee_name: row.description || row.vendor || "Imported payroll",
@@ -1229,14 +1278,46 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             hours_worked: row.quantity,
             hourly_rate: row.unitCost || row.unitRetailPrice,
             notes: `Imported from ${parsedImport.fileName}`,
-          });
+          }).select("id").single();
           if (payrollError) {
             console.error("Smart Import payroll_entries insert failed:", payrollError, { row, userId, storeId });
             throw payrollError;
           }
+          recordPosted("payroll_entries", payrollEntry?.id as string | undefined, row);
+        } else if (row.importDestination === "cash_flow_entries") {
+          const cashFlowType = row.suggestedCategory === "Card processor deposit"
+            ? "card_processor_deposit"
+            : row.suggestedCategory === "Cash deposit"
+              ? "cash_deposit"
+              : row.suggestedCategory === "Loan payment"
+                ? "loan_payment"
+                : row.suggestedCategory === "Owner draw"
+                  ? "owner_draw"
+                  : row.suggestedCategory === "Transfer"
+                    ? "transfer"
+                    : row.suggestedCategory === "Fees"
+                      ? "fee"
+                      : "other";
+          const { data: cashFlowEntry, error: cashFlowError } = await supabase.from("cash_flow_entries").insert({
+            user_id: userId,
+            store_id: storeId,
+            import_id: importId,
+            import_row_id: importRowId,
+            date,
+            flow_type: cashFlowType,
+            vendor_name: row.vendor || null,
+            description: row.description || null,
+            amount,
+            notes: `Imported from ${parsedImport.fileName}`,
+          }).select("id").single();
+          if (cashFlowError) {
+            console.error("Smart Import cash_flow_entries insert failed:", cashFlowError, { row, userId, storeId });
+            throw cashFlowError;
+          }
+          recordPosted("cash_flow_entries", cashFlowEntry?.id as string | undefined, row);
         } else if (row.importDestination === "department_sales") {
           const raw = row.rawData;
-          const { error: departmentError } = await supabase.from("department_sales").insert({
+          const { data: departmentSale, error: departmentError } = await supabase.from("department_sales").insert({
             user_id: userId,
             store_id: storeId,
             import_id: importId,
@@ -1251,14 +1332,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             discount_amount: Number(raw.discount_amount ?? 0),
             net_sales: Number(raw.net_sales ?? row.total ?? 0),
             percent_of_sales: Number(raw.percent_of_sales ?? 0),
-          });
+          }).select("id").single();
           if (departmentError) {
             console.error("Smart Import department_sales insert failed:", departmentError, { row, userId, storeId });
             throw departmentError;
           }
+          recordPosted("department_sales", departmentSale?.id as string | undefined, row);
         } else if (row.importDestination === "store_sales_summaries") {
           const raw = row.rawData;
-          const { error: summaryError } = await supabase.from("store_sales_summaries").insert({
+          const { data: storeSummary, error: summaryError } = await supabase.from("store_sales_summaries").insert({
             user_id: userId,
             store_id: storeId,
             import_id: importId,
@@ -1274,14 +1356,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             total_sales: Number(raw.totalSales ?? raw.total_sales ?? 0),
             total_revenue: Number(raw.totalRevenue ?? raw.total_revenue ?? 0),
             network_revenue: Number(raw.networkRevenue ?? raw.network_revenue ?? 0),
-          });
+          }).select("id").single();
           if (summaryError) {
             console.error("Smart Import store_sales_summaries insert failed:", summaryError, { row, userId, storeId });
             throw summaryError;
           }
+          recordPosted("store_sales_summaries", storeSummary?.id as string | undefined, row);
         } else if (row.importDestination === "fuel_grade_sales") {
           const raw = row.rawData;
-          const { error: fuelGradeError } = await supabase.from("fuel_grade_sales").insert({
+          const { data: fuelGradeSale, error: fuelGradeError } = await supabase.from("fuel_grade_sales").insert({
             user_id: userId,
             store_id: storeId,
             import_id: importId,
@@ -1292,14 +1375,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             volume: Number(raw.volume ?? row.quantity ?? 0),
             sales: Number(raw.sales ?? row.total ?? 0),
             percent_of_total_fuel_sales: Number(raw.percent_of_total_fuel_sales ?? 0),
-          });
+          }).select("id").single();
           if (fuelGradeError) {
             console.error("Smart Import fuel_grade_sales insert failed:", fuelGradeError, { row, userId, storeId });
             throw fuelGradeError;
           }
+          recordPosted("fuel_grade_sales", fuelGradeSale?.id as string | undefined, row);
         } else if (row.importDestination === "tender_sales") {
           const raw = row.rawData;
-          const { error: tenderError } = await supabase.from("tender_sales").insert({
+          const { data: tenderSale, error: tenderError } = await supabase.from("tender_sales").insert({
             user_id: userId,
             store_id: storeId,
             import_id: importId,
@@ -1308,16 +1392,17 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             payment_method: String(raw.payment_method ?? row.productName ?? row.description),
             count: Number(raw.count ?? row.quantity ?? 0),
             sales_amount: Number(raw.sales_amount ?? row.total ?? 0),
-          });
+          }).select("id").single();
           if (tenderError) {
             console.error("Smart Import tender_sales insert failed:", tenderError, { row, userId, storeId });
             throw tenderError;
           }
+          recordPosted("tender_sales", tenderSale?.id as string | undefined, row);
         } else if (row.importDestination === "product_sales") {
           const vendor = await ensureVendor(row);
           const category = await ensureCategory(row);
           const product = await ensureProduct(row, vendor.id, category.id);
-          const { error: saleError } = await supabase.from("product_sales").insert({
+          const { data: productSale, error: saleError } = await supabase.from("product_sales").insert({
             user_id: userId,
             store_id: storeId,
             import_id: importId,
@@ -1335,7 +1420,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             margin_percent: rowMarginPercent(row),
             category: row.suggestedCategory,
             vendor: vendor.name,
-          });
+          }).select("id").single();
           if (saleError) {
             console.error("Smart Import product_sales insert failed:", saleError, {
               row,
@@ -1346,13 +1431,156 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             });
             throw saleError;
           }
+          recordPosted("product_sales", productSale?.id as string | undefined, row);
         }
+      }
+
+      if (postedRecords.length) {
+        const postedAt = new Date().toISOString();
+        const { error: rowStatusError } = await supabase
+          .from("import_rows")
+          .update({ row_status: "posted", posted_at: postedAt, imported_at: postedAt })
+          .eq("import_id", importId)
+          .in("row_hash", postedRecords.map((record) => record.row_hash));
+        if (rowStatusError) {
+          console.error("Smart Import import_rows status update failed:", rowStatusError);
+          throw rowStatusError;
+        }
+      }
+
+      const { error: metadataUpdateError } = await supabase
+        .from("imports")
+        .update({
+          status: "posted",
+          metadata: {
+            ...((importRecord.metadata as Record<string, unknown> | null) ?? {}),
+            parser: parsedImport.parser,
+            warnings: parsedImport.warnings,
+            posted_records: postedRecords,
+            posted_at: new Date().toISOString(),
+            skipped_duplicate_rows: rows.length - acceptedRows.length,
+          },
+        })
+        .eq("id", importId)
+        .eq("user_id", userId);
+      if (metadataUpdateError) {
+        console.error("Smart Import imports metadata update failed:", metadataUpdateError);
+        throw metadataUpdateError;
       }
 
       await saveLearnedCorrections();
       await refresh();
     },
     [data.import_rows, data.imports, refresh, store, user],
+  );
+
+  const rollbackSmartImport = useCallback(
+    async (importId: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) {
+        throw new Error("You must be signed in before rolling back imports.");
+      }
+
+      const importRecord = data.imports.find((record) => record.id === importId);
+      if (!importRecord) {
+        throw new Error("Import record was not found.");
+      }
+      if (importRecord.status === "rolled_back") {
+        throw new Error("This import has already been rolled back.");
+      }
+
+      const metadata = importRecord.metadata ?? {};
+      const postedRecords = Array.isArray(metadata.posted_records)
+        ? metadata.posted_records.filter(
+            (record): record is { table: string; id: string } =>
+              typeof record === "object" &&
+              record !== null &&
+              typeof (record as { table?: unknown }).table === "string" &&
+              typeof (record as { id?: unknown }).id === "string",
+          )
+        : [];
+      const allowedRollbackTables = new Set([
+        "expenses",
+        "fuel_entries",
+        "lottery_entries",
+        "deli_entries",
+        "payroll_entries",
+        "cash_flow_entries",
+        "department_sales",
+        "store_sales_summaries",
+        "fuel_grade_sales",
+        "tender_sales",
+        "product_sales",
+      ]);
+      const recordsByTable = postedRecords.reduce<Record<string, string[]>>((groups, record) => {
+        if (allowedRollbackTables.has(record.table)) {
+          groups[record.table] = [...(groups[record.table] ?? []), record.id];
+        }
+        return groups;
+      }, {});
+
+      for (const [table, ids] of Object.entries(recordsByTable)) {
+        const { error: deleteError } = await supabase
+          .from(table)
+          .delete()
+          .eq("user_id", user.id)
+          .in("id", ids);
+        if (deleteError) {
+          setError(deleteError.message);
+          throw deleteError;
+        }
+      }
+
+      for (const table of [
+        "cash_flow_entries",
+        "department_sales",
+        "store_sales_summaries",
+        "fuel_grade_sales",
+        "tender_sales",
+        "product_sales",
+      ]) {
+        const { error: fallbackDeleteError } = await supabase
+          .from(table)
+          .delete()
+          .eq("user_id", user.id)
+          .eq("import_id", importId);
+        if (fallbackDeleteError) {
+          setError(fallbackDeleteError.message);
+          throw fallbackDeleteError;
+        }
+      }
+
+      const rolledBackAt = new Date().toISOString();
+      const { error: rowUpdateError } = await supabase
+        .from("import_rows")
+        .update({ row_status: "rolled_back" })
+        .eq("user_id", user.id)
+        .eq("import_id", importId);
+      if (rowUpdateError) {
+        setError(rowUpdateError.message);
+        throw rowUpdateError;
+      }
+
+      const { error: importUpdateError } = await supabase
+        .from("imports")
+        .update({
+          status: "rolled_back",
+          metadata: {
+            ...metadata,
+            rolled_back_at: rolledBackAt,
+            rollback_deleted_records: postedRecords.length,
+          },
+        })
+        .eq("id", importId)
+        .eq("user_id", user.id);
+      if (importUpdateError) {
+        setError(importUpdateError.message);
+        throw importUpdateError;
+      }
+
+      await refresh();
+    },
+    [data.imports, refresh, user],
   );
 
   const savePosColumnMapping = useCallback(
@@ -1705,6 +1933,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveResource,
       deleteResource,
       saveSmartImport,
+      rollbackSmartImport,
       savePosColumnMapping,
       savePosImport,
       updateProfile,
@@ -1728,6 +1957,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveResource,
       saveBulkMonthlyEntries,
       saveSmartImport,
+      rollbackSmartImport,
       savePosColumnMapping,
       savePosImport,
       selectStore,

@@ -479,6 +479,20 @@ create table if not exists public.imports (
   unique (user_id, store_id, file_hash)
 );
 
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.imports'::regclass
+      and conname = 'imports_status_check'
+  ) then
+    alter table public.imports drop constraint imports_status_check;
+  end if;
+  alter table public.imports add constraint imports_status_check
+  check (status in ('draft', 'reviewed', 'posted', 'rejected', 'rolled_back', 'imported', 'duplicate', 'failed'));
+end $$;
+
 create table if not exists public.import_rows (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -505,6 +519,29 @@ create table if not exists public.import_rows (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, store_id, row_hash)
+);
+
+alter table public.import_rows add column if not exists row_status text not null default 'draft'
+check (row_status in ('draft', 'reviewed', 'posted', 'ignored', 'duplicate', 'rolled_back'));
+alter table public.import_rows add column if not exists duplicate_key text;
+alter table public.import_rows add column if not exists duplicate_reason text;
+alter table public.import_rows add column if not exists reviewed_at timestamptz;
+alter table public.import_rows add column if not exists posted_at timestamptz;
+
+create table if not exists public.cash_flow_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  import_id uuid references public.imports(id) on delete set null,
+  import_row_id uuid references public.import_rows(id) on delete set null,
+  date date not null,
+  flow_type text not null default 'other' check (flow_type in ('vendor_ach', 'card_processor_deposit', 'cash_deposit', 'loan_payment', 'owner_draw', 'transfer', 'fee', 'other')),
+  vendor_name text,
+  description text,
+  amount numeric(12,2) not null default 0,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.vendors (
@@ -730,8 +767,11 @@ create index if not exists margin_settings_user_store_category_idx on public.mar
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
 create index if not exists deli_entries_user_store_date_idx on public.deli_entries(user_id, store_id, date desc);
 create index if not exists payroll_entries_user_store_date_idx on public.payroll_entries(user_id, store_id, date_range_start desc);
+create index if not exists cash_flow_entries_user_store_date_idx on public.cash_flow_entries(user_id, store_id, date desc);
+create index if not exists cash_flow_entries_user_store_import_idx on public.cash_flow_entries(user_id, store_id, import_id);
 create index if not exists imports_user_store_created_idx on public.imports(user_id, store_id, created_at desc);
 create index if not exists import_rows_user_store_import_idx on public.import_rows(user_id, store_id, import_id, row_index);
+create index if not exists import_rows_user_store_duplicate_idx on public.import_rows(user_id, store_id, duplicate_key);
 create index if not exists vendors_user_store_name_idx on public.vendors(user_id, store_id, normalized_name);
 create index if not exists product_categories_user_store_name_idx on public.product_categories(user_id, store_id, name);
 create index if not exists products_user_store_name_idx on public.products(user_id, store_id, name);
@@ -839,6 +879,11 @@ create trigger set_payroll_entries_updated_at
 before update on public.payroll_entries
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_cash_flow_entries_updated_at on public.cash_flow_entries;
+create trigger set_cash_flow_entries_updated_at
+before update on public.cash_flow_entries
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_imports_updated_at on public.imports;
 create trigger set_imports_updated_at
 before update on public.imports
@@ -905,6 +950,7 @@ alter table public.margin_settings enable row level security;
 alter table public.lottery_entries enable row level security;
 alter table public.deli_entries enable row level security;
 alter table public.payroll_entries enable row level security;
+alter table public.cash_flow_entries enable row level security;
 alter table public.imports enable row level security;
 alter table public.import_rows enable row level security;
 alter table public.vendors enable row level security;
@@ -1013,6 +1059,20 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "Users can manage their own payroll entries" on public.payroll_entries;
 create policy "Users can manage their own payroll entries" on public.payroll_entries
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own cash flow entries" on public.cash_flow_entries;
+drop policy if exists "Users can select their own cash flow entries" on public.cash_flow_entries;
+create policy "Users can select their own cash flow entries" on public.cash_flow_entries
+for select using (user_id = auth.uid());
+drop policy if exists "Users can insert their own cash flow entries" on public.cash_flow_entries;
+create policy "Users can insert their own cash flow entries" on public.cash_flow_entries
+for insert with check (user_id = auth.uid());
+drop policy if exists "Users can update their own cash flow entries" on public.cash_flow_entries;
+create policy "Users can update their own cash flow entries" on public.cash_flow_entries
+for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "Users can delete their own cash flow entries" on public.cash_flow_entries;
+create policy "Users can delete their own cash flow entries" on public.cash_flow_entries
+for delete using (user_id = auth.uid());
 
 drop policy if exists "Users can manage their own imports" on public.imports;
 drop policy if exists "Users can select their own imports" on public.imports;
@@ -1186,6 +1246,27 @@ grant select, insert, update, delete on table public.fuel_deliveries to authenti
 grant select, insert, update, delete on table public.fuel_tank_readings to authenticated;
 grant select, insert, update, delete on table public.fuel_reconciliations to authenticated;
 grant select, insert, update, delete on table public.margin_settings to authenticated;
+grant select, insert, update, delete on table public.daily_sales to authenticated;
+grant select, insert, update, delete on table public.expenses to authenticated;
+grant select, insert, update, delete on table public.fuel_entries to authenticated;
+grant select, insert, update, delete on table public.lottery_entries to authenticated;
+grant select, insert, update, delete on table public.deli_entries to authenticated;
+grant select, insert, update, delete on table public.payroll_entries to authenticated;
+grant select, insert, update, delete on table public.cash_flow_entries to authenticated;
+grant select, insert, update, delete on table public.imports to authenticated;
+grant select, insert, update, delete on table public.import_rows to authenticated;
+grant select, insert, update, delete on table public.vendors to authenticated;
+grant select, insert, update, delete on table public.product_categories to authenticated;
+grant select, insert, update, delete on table public.products to authenticated;
+grant select, insert, update, delete on table public.employees to authenticated;
+grant select, insert, update, delete on table public.product_sales to authenticated;
+grant select, insert, update, delete on table public.department_sales to authenticated;
+grant select, insert, update, delete on table public.store_sales_summaries to authenticated;
+grant select, insert, update, delete on table public.fuel_grade_sales to authenticated;
+grant select, insert, update, delete on table public.tender_sales to authenticated;
+grant select, insert, update, delete on table public.category_rules to authenticated;
+grant select, insert, update, delete on table public.vendor_rules to authenticated;
+grant select, insert, update, delete on table public.product_rules to authenticated;
 
 create table if not exists public.pos_systems (
   id uuid primary key default gen_random_uuid(),

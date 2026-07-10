@@ -140,6 +140,33 @@ const categoryRules: CategoryRule[] = [
     destination: "expenses",
     keywords: ["fee", "bank charge", "service charge", "processing", "merchant"],
   },
+  {
+    category: "Card processor deposit",
+    destination: "cash_flow_entries",
+    vendorKeywords: ["square", "clover", "stripe", "heartland", "shift4", "merchant", "processor"],
+    keywords: ["merchant deposit", "card deposit", "batch deposit", "processor deposit", "square", "clover", "stripe", "shift4"],
+  },
+  {
+    category: "Cash deposit",
+    destination: "cash_flow_entries",
+    keywords: ["cash deposit", "branch deposit", "atm deposit", "deposit cash"],
+  },
+  {
+    category: "Loan payment",
+    destination: "cash_flow_entries",
+    vendorKeywords: ["loan", "lending", "bank"],
+    keywords: ["loan payment", "principal", "interest payment", "note payment", "sba loan"],
+  },
+  {
+    category: "Owner draw",
+    destination: "cash_flow_entries",
+    keywords: ["owner draw", "owner distribution", "member draw", "personal transfer", "distribution"],
+  },
+  {
+    category: "Transfer",
+    destination: "cash_flow_entries",
+    keywords: ["transfer", "online transfer", "account transfer", "xfer"],
+  },
 ];
 
 export function normalizeText(value: unknown) {

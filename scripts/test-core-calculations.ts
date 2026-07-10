@@ -135,6 +135,7 @@ const aggregateFixture: CommandCenterData = {
   margin_settings: [],
   lottery_entries: [], deli_entries: [], expenses: [],
   payroll_entries: [{ id: "pay", user_id: "user", store_id: "store", employee_name: "Test", date_range_start: "2026-05-01", date_range_end: "2026-07-01", hours_worked: 10, hourly_rate: 20, notes: null }],
+  cash_flow_entries: [],
   pos_systems: [], pos_imports: [], pos_column_mappings: [], pos_import_rows: [],
   imports: [], import_rows: [], vendors: [], employees: [], product_categories: [], products: [], product_sales: [],
   department_sales: [], store_sales_summaries: [], fuel_grade_sales: [], tender_sales: [], category_rules: [], vendor_rules: [], product_rules: [],

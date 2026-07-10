@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   PackageSearch,
+  RotateCcw,
   Upload,
   WandSparkles,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import { expenseCategories, smartImportDestinations } from "@/lib/types";
 
 const acceptedTypes = ".pdf,.csv,.xlsx,.xls";
 type ManualReportType = "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
+type ReviewFilter = "all" | "needs_review" | "expenses" | "product_sales" | "department_sales" | "ignored" | "duplicate";
 
 function destinationLabel(destination: SmartImportDestination) {
   return destination.replaceAll("_", " ");
@@ -131,7 +133,7 @@ function productReports(productSales: ProductSale[]) {
 }
 
 export default function SmartImportPage() {
-  const { authLoading, data, saveSmartImport } = useCommandCenter();
+  const { authLoading, data, rollbackSmartImport, saveSmartImport } = useCommandCenter();
   const [parsedImport, setParsedImport] = useState<ParsedImportResult | null>(null);
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -139,12 +141,55 @@ export default function SmartImportPage() {
   const [manualReportType, setManualReportType] = useState<ManualReportType>("department_sales");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [selectedRowHashes, setSelectedRowHashes] = useState<string[]>([]);
+  const [bulkCategory, setBulkCategory] = useState<ParsedImportRow["suggestedCategory"]>("Other");
+  const [bulkDestination, setBulkDestination] = useState<SmartImportDestination>("expenses");
+  const [bulkVendor, setBulkVendor] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const reports = useMemo(() => productReports(data.product_sales), [data.product_sales]);
   const duplicateFile = parsedImport
     ? data.imports.some((record) => record.file_hash === parsedImport.fileHash)
     : false;
+  const existingDuplicateKeys = useMemo(
+    () => new Set(data.import_rows.map((row) => row.duplicate_key).filter(Boolean)),
+    [data.import_rows],
+  );
+  const existingRowHashes = useMemo(() => new Set(data.import_rows.map((row) => row.row_hash)), [data.import_rows]);
+
+  function duplicateKeyForRow(row: ParsedImportRow) {
+    const vendor = (row.vendor || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const amount = (row.total || row.quantity * (row.unitRetailPrice || row.unitCost)).toFixed(2);
+    const invoice = String(row.rawData.invoice_number ?? row.rawData.invoice ?? row.rawData["invoice #"] ?? "").trim();
+    const bankTransaction = String(row.rawData.transaction_id ?? row.rawData.transaction ?? row.rawData["transaction id"] ?? row.rawData.check_number ?? "").trim();
+    if (invoice) return `invoice:${vendor}:${invoice}`;
+    if (bankTransaction) return `bank:${vendor}:${bankTransaction}`;
+    return `vendor-date-amount:${vendor}:${row.date ?? "no-date"}:${amount}`;
+  }
+
+  function markDuplicateRows(incomingRows: ParsedImportRow[]) {
+    return incomingRows.map((row) => {
+      const duplicateKey = duplicateKeyForRow(row);
+      const duplicateReason = existingRowHashes.has(row.rowHash)
+        ? "Duplicate row hash"
+        : existingDuplicateKeys.has(duplicateKey)
+          ? "Duplicate vendor/date/amount, invoice, or bank transaction"
+          : null;
+      return duplicateReason
+        ? {
+            ...row,
+            duplicateKey,
+            duplicateReason,
+            rowStatus: "duplicate" as const,
+            needsReview: true,
+            ignored: true,
+            importDestination: "ignore" as const,
+          }
+        : { ...row, duplicateKey };
+    });
+  }
 
   async function parseFile(file: File, options: { forceOcr?: boolean; manualReportType?: ManualReportType } = {}) {
     setUploading(true);
@@ -179,7 +224,8 @@ export default function SmartImportPage() {
       }
 
       setParsedImport(payload as ParsedImportResult);
-      setRows((payload as ParsedImportResult).rows);
+      setRows(markDuplicateRows((payload as ParsedImportResult).rows));
+      setSelectedRowHashes([]);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to parse file.");
     } finally {
@@ -300,6 +346,25 @@ export default function SmartImportPage() {
     );
   }
 
+  function updateSelectedRows(patch: Partial<ParsedImportRow>) {
+    const selected = new Set(selectedRowHashes);
+    setRows((current) => current.map((row) => (selected.has(row.rowHash) ? { ...row, ...patch } : row)));
+  }
+
+  async function rollbackImport(importId: string) {
+    setRollingBackId(importId);
+    setError(null);
+    setMessage(null);
+    try {
+      await rollbackSmartImport(importId);
+      setMessage("Import rolled back. Posted rows were removed and the audit record was kept.");
+    } catch (rollbackError) {
+      setError(rollbackError instanceof Error ? rollbackError.message : "Unable to roll back import.");
+    } finally {
+      setRollingBackId(null);
+    }
+  }
+
   async function confirmImport() {
     if (!parsedImport) {
       return;
@@ -332,6 +397,13 @@ export default function SmartImportPage() {
 
   const reviewableRows = rows.filter((row) => !row.ignored && row.importDestination !== "ignore");
   const needsReviewCount = rows.filter((row) => row.needsReview || row.importDestination === "needs_review").length;
+  const filteredRows = rows.filter((row) => {
+    if (reviewFilter === "all") return true;
+    if (reviewFilter === "needs_review") return row.needsReview || row.importDestination === "needs_review";
+    if (reviewFilter === "ignored") return row.ignored || row.importDestination === "ignore";
+    if (reviewFilter === "duplicate") return Boolean(row.duplicateReason);
+    return row.importDestination === reviewFilter;
+  });
 
   return (
     <div>
@@ -656,11 +728,54 @@ export default function SmartImportPage() {
               ))}
             </div>
           ) : null}
+          <div className="grid gap-3 border-b border-slate-100 bg-white px-5 py-4 lg:grid-cols-[1fr_2fr]">
+            <label>
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Filter rows</span>
+              <select
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
+                onChange={(event) => setReviewFilter(event.target.value as ReviewFilter)}
+                value={reviewFilter}
+              >
+                <option value="all">All rows</option>
+                <option value="needs_review">Needs review</option>
+                <option value="expenses">Expenses</option>
+                <option value="product_sales">Product sales</option>
+                <option value="department_sales">Department sales</option>
+                <option value="ignored">Ignored</option>
+                <option value="duplicate">Duplicate</option>
+              </select>
+            </label>
+            <div className="flex flex-wrap gap-2 rounded-3xl bg-slate-50 p-3">
+              <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50" disabled={!selectedRowHashes.length} onClick={() => updateSelectedRows({ needsReview: false, rowStatus: "reviewed" })} type="button">
+                Mark reviewed
+              </button>
+              <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50" disabled={!selectedRowHashes.length} onClick={() => updateSelectedRows({ ignored: true, importDestination: "ignore", rowStatus: "ignored" })} type="button">
+                Ignore selected
+              </button>
+              <select className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700" onChange={(event) => setBulkCategory(event.target.value as ParsedImportRow["suggestedCategory"])} value={bulkCategory}>
+                {expenseCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50" disabled={!selectedRowHashes.length} onClick={() => updateSelectedRows({ suggestedCategory: bulkCategory, needsReview: false, rowStatus: "reviewed" })} type="button">
+                Change category
+              </button>
+              <select className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700" onChange={(event) => setBulkDestination(event.target.value as SmartImportDestination)} value={bulkDestination}>
+                {smartImportDestinations.map((destination) => <option key={destination} value={destination}>{destinationLabel(destination)}</option>)}
+              </select>
+              <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50" disabled={!selectedRowHashes.length} onClick={() => updateSelectedRows({ importDestination: bulkDestination, needsReview: bulkDestination === "needs_review" })} type="button">
+                Change destination
+              </button>
+              <input className="min-w-48 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700" onChange={(event) => setBulkVendor(event.target.value)} placeholder="Vendor" value={bulkVendor} />
+              <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50" disabled={!selectedRowHashes.length || !bulkVendor.trim()} onClick={() => updateSelectedRows({ vendor: bulkVendor.trim(), needsReview: false, rowStatus: "reviewed" })} type="button">
+                Assign vendor
+              </button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-[1800px] divide-y divide-slate-100 text-sm">
               <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
                 <tr>
                   {[
+                    "Select",
                     "Save",
                     "Date",
                     "Vendor",
@@ -674,6 +789,7 @@ export default function SmartImportPage() {
                     "Suggested category",
                     "Confidence",
                     "Destination",
+                    "Issue",
                   ].map((header) => (
                     <th className="px-4 py-3 font-black" key={header}>
                       {header}
@@ -682,8 +798,21 @@ export default function SmartImportPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr className={row.needsReview ? "bg-amber-50/50" : "hover:bg-cyan-50/30"} key={row.rowHash}>
+                    <td className="px-4 py-3">
+                      <input
+                        checked={selectedRowHashes.includes(row.rowHash)}
+                        onChange={(event) =>
+                          setSelectedRowHashes((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, row.rowHash])]
+                              : current.filter((hash) => hash !== row.rowHash),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <input
                         checked={!row.ignored && row.importDestination !== "ignore"}
@@ -745,6 +874,15 @@ export default function SmartImportPage() {
                         ))}
                       </select>
                     </td>
+                    <td className="px-4 py-3">
+                      {row.duplicateReason ? (
+                        <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-black text-rose-700">{row.duplicateReason}</span>
+                      ) : row.needsReview ? (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-700">Needs review</span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-700">Ready</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -752,6 +890,57 @@ export default function SmartImportPage() {
           </div>
         </section>
       ) : null}
+
+      <section className="mb-8 rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-xl font-black text-slate-950">Import history</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Posted imports can be rolled back without deleting the audit trail.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{data.imports.length} files</span>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-[820px] divide-y divide-slate-100 text-sm">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+              <tr>
+                {["File", "Status", "Rows", "Created", "Action"].map((header) => (
+                  <th className="px-4 py-3 font-black" key={header}>{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.imports.slice(0, 8).map((record) => (
+                <tr key={record.id}>
+                  <td className="px-4 py-3 font-bold text-slate-900">{record.original_file_name}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-black ${record.status === "rolled_back" ? "bg-amber-100 text-amber-700" : record.status === "posted" || record.status === "imported" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
+                      {record.status.replaceAll("_", " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{numberFormatter.format(record.row_count)}</td>
+                  <td className="px-4 py-3">{record.created_at ? new Date(record.created_at).toLocaleDateString() : "Unknown"}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={rollingBackId === record.id || record.status === "rolled_back" || record.status === "rejected"}
+                      onClick={() => rollbackImport(record.id)}
+                      type="button"
+                    >
+                      {rollingBackId === record.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      Roll back
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!data.imports.length ? (
+                <tr>
+                  <td className="px-4 py-5 text-sm font-semibold text-slate-500" colSpan={5}>No Smart Import files yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-3">
         <ReportCard

@@ -21,6 +21,11 @@ export type ExpenseCategory =
   | "Supplies"
   | "Taxes"
   | "Fees"
+  | "Card processor deposit"
+  | "Cash deposit"
+  | "Loan payment"
+  | "Owner draw"
+  | "Transfer"
   | "Other";
 
 export type SmartImportCategory = ExpenseCategory;
@@ -37,6 +42,7 @@ export type SmartImportDestination =
   | "store_sales_summaries"
   | "fuel_grade_sales"
   | "tender_sales"
+  | "cash_flow_entries"
   | "needs_review"
   | "ignore";
 
@@ -401,7 +407,7 @@ export type ImportRecord = EntryBase & {
   file_size: number;
   file_hash: string;
   row_count: number;
-  status: "reviewed" | "imported" | "duplicate" | "failed";
+  status: "draft" | "reviewed" | "posted" | "rejected" | "rolled_back" | "imported" | "duplicate" | "failed";
   metadata: Record<string, unknown> | null;
 };
 
@@ -423,8 +429,32 @@ export type ImportRow = EntryBase & {
   import_destination: SmartImportDestination;
   needs_review: boolean;
   ignored: boolean;
+  row_status?: "draft" | "reviewed" | "posted" | "ignored" | "duplicate" | "rolled_back";
+  duplicate_key?: string | null;
+  duplicate_reason?: string | null;
+  reviewed_at?: string | null;
+  posted_at?: string | null;
   raw_data: Record<string, unknown> | null;
   imported_at?: string | null;
+};
+
+export type CashFlowEntry = EntryBase & {
+  import_id: string | null;
+  import_row_id: string | null;
+  date: string;
+  flow_type:
+    | "vendor_ach"
+    | "card_processor_deposit"
+    | "cash_deposit"
+    | "loan_payment"
+    | "owner_draw"
+    | "transfer"
+    | "fee"
+    | "other";
+  vendor_name: string | null;
+  description: string | null;
+  amount: number;
+  notes: string | null;
 };
 
 export type Vendor = EntryBase & {
@@ -630,6 +660,9 @@ export type ParsedImportRow = {
   importDestination: SmartImportDestination;
   needsReview: boolean;
   ignored: boolean;
+  rowStatus?: ImportRow["row_status"];
+  duplicateKey?: string | null;
+  duplicateReason?: string | null;
   rawData: Record<string, unknown>;
 };
 
@@ -670,7 +703,8 @@ export type TableName =
   | "margin_settings"
   | "lottery_entries"
   | "deli_entries"
-  | "payroll_entries";
+  | "payroll_entries"
+  | "cash_flow_entries";
 
 export type ResourceTableName = "products" | "vendors" | "employees";
 
@@ -688,6 +722,7 @@ export type TableRowMap = {
   lottery_entries: LotteryEntry;
   deli_entries: DeliEntry;
   payroll_entries: PayrollEntry;
+  cash_flow_entries: CashFlowEntry;
 };
 
 export type ResourceRowMap = {
@@ -710,6 +745,7 @@ export type CommandCenterData = {
   lottery_entries: LotteryEntry[];
   deli_entries: DeliEntry[];
   payroll_entries: PayrollEntry[];
+  cash_flow_entries: CashFlowEntry[];
   pos_systems: PosSystem[];
   pos_imports: PosImport[];
   pos_column_mappings: PosColumnMapping[];
@@ -777,6 +813,11 @@ export const expenseCategories: ExpenseCategory[] = [
   "Supplies",
   "Taxes",
   "Fees",
+  "Card processor deposit",
+  "Cash deposit",
+  "Loan payment",
+  "Owner draw",
+  "Transfer",
   "Other",
 ];
 
@@ -792,6 +833,7 @@ export const smartImportDestinations: SmartImportDestination[] = [
   "store_sales_summaries",
   "fuel_grade_sales",
   "tender_sales",
+  "cash_flow_entries",
   "needs_review",
   "ignore",
 ];
