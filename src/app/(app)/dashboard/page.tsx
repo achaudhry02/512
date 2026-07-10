@@ -45,6 +45,7 @@ import {
   aggregateData,
   analyzeProfitLeaks,
   bestWorstCategoriesFromData,
+  cashFlowSummary,
   currency,
   dailyChart,
   expensesByCategory,
@@ -117,6 +118,9 @@ export default function DashboardPage() {
     }));
   const trend = view === "monthly" && monthlyTrend.length ? monthlyTrend : dailyChart(data);
   const profitLeaks = analyzeProfitLeaks(data).slice(0, 6);
+  const monthCashFlow = cashFlowSummary(data.cash_flow_entries, monthStartIso(), monthEndIso());
+  const postedImports = data.imports.filter((record) => record.status === "posted" || record.status === "imported").length;
+  const rolledBackImports = data.imports.filter((record) => record.status === "rolled_back").length;
   const todaySale = data.daily_sales.find((sale) => sale.date === today);
   const unreconciledDates = unreconciledDailySaleDates(data.daily_sales, data.cash_reconciliations);
   const cashReconciliationTotals = reconciliationTotals(data.cash_reconciliations);
@@ -376,6 +380,38 @@ export default function DashboardPage() {
           label="Low fuel margins"
           trend="Pricing"
           value={fuelTotals.lowMarginCount}
+        />
+        <StatCard
+          accent="cyan"
+          helper="Card processor and cash deposits from bank imports"
+          icon={WalletCards}
+          label="Cash flow deposits"
+          trend="Bank"
+          value={monthCashFlow.operatingInflows}
+        />
+        <StatCard
+          accent={monthCashFlow.nonOperatingOutflows ? "amber" : "slate"}
+          helper="Loan payments, owner draws, and transfers excluded from operating expenses"
+          icon={CircleDollarSign}
+          label="Non-operating cash out"
+          trend="Cash flow"
+          value={monthCashFlow.nonOperatingOutflows}
+        />
+        <StatCard
+          accent="emerald"
+          helper={`${rolledBackImports} rolled back imports remain in the audit trail`}
+          icon={ReceiptText}
+          label="Posted imports"
+          trend="Smart Import"
+          value={postedImports}
+        />
+        <StatCard
+          accent={data.import_rows.some((row) => row.needs_review || row.row_status === "draft") ? "amber" : "emerald"}
+          helper="Rows still marked draft or needs review"
+          icon={AlertTriangle}
+          label="Import rows needing review"
+          trend="Review"
+          value={data.import_rows.filter((row) => row.needs_review || row.row_status === "draft").length}
         />
       </div>
 

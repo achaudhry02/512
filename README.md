@@ -302,6 +302,15 @@ Posted imports appear in Import History. Use `Roll back` to remove destination r
 
 Bank-statement rows such as card processor deposits, cash deposits, loan payments, owner draws, transfers, and fees can be routed to `cash_flow_entries`. Loan payments, owner draws, and transfers are tracked separately from normal operating expenses so they do not distort profit reporting.
 
+Dashboard and Reports also surface this audit data:
+
+- monthly cash-flow deposits from bank imports
+- non-operating cash out for loan payments, owner draws, and transfers
+- net cash movement
+- posted and rolled-back Smart Import counts
+- duplicate and reviewed import-row counts
+- CSV export rows for cash flow and Smart Import status
+
 ## Entry Modes
 
 Open `Daily Sales` or `Bulk Entry` from the sidebar. The entry toggle supports:

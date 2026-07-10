@@ -15,6 +15,7 @@ import {
 } from "@/lib/fuel-reconciliation";
 import {
   aggregateData,
+  cashFlowSummary,
   currency,
   expensesByCategory,
   monthEndIso,
@@ -58,6 +59,18 @@ export default function ReportsPage() {
   const posFuelGallons = sum(report.posRows.map((row) => row.fuel_gallons));
   const posFuelSales = sum(report.posRows.map((row) => row.fuel_sales));
   const posErrorRows = data.pos_import_rows.filter((row) => row.validation_errors.length);
+  const cashFlow = cashFlowSummary(data.cash_flow_entries, startDate || undefined, endDate || undefined);
+  const cashFlowRows = Object.entries(cashFlow.breakdown)
+    .map(([name, value]) => ({ name: name.replaceAll("_", " "), value }))
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  const importsInRange = data.imports.filter((record) => {
+    const createdAt = record.created_at?.slice(0, 10);
+    return createdAt ? createdAt >= startDate && createdAt <= endDate : false;
+  });
+  const importStatusRows = Object.entries(importsInRange.reduce<Record<string, number>>((statuses, record) => {
+    statuses[record.status] = (statuses[record.status] ?? 0) + 1;
+    return statuses;
+  }, {})).map(([name, value]) => ({ name: name.replaceAll("_", " "), value }));
   const reconciliationsInRange = data.cash_reconciliations.filter((entry) => entry.date >= startDate && entry.date <= endDate);
   const unreconciledDays = unreconciledDailySaleDates(report.dailySales, reconciliationsInRange).length;
   const reconciliationSummary = reconciliationTotals(reconciliationsInRange);
@@ -85,6 +98,11 @@ export default function ReportsPage() {
       ["Inventory value", inventoryValue],
       ["POS fuel gallons", posFuelGallons],
       ["POS fuel sales", posFuelSales],
+      ["Cash flow deposits", cashFlow.operatingInflows],
+      ["Non-operating cash out", cashFlow.nonOperatingOutflows],
+      ["Cash flow fees", cashFlow.fees],
+      ["Net cash movement", cashFlow.netCashMovement],
+      ["Smart Import files", importsInRange.length],
       ["Cash over/short", cashOverShort],
       ["Unreconciled days", unreconciledDays],
       ["Card batch mismatch", cardMismatch],
@@ -92,6 +110,12 @@ export default function ReportsPage() {
       [],
       ["Expenses by category", "Amount"],
       ...expenseCategories.map((category) => [category, expenseMap[category] ?? 0]),
+      [],
+      ["Cash flow by type", "Amount"],
+      ...cashFlowRows.map((row) => [row.name, row.value]),
+      [],
+      ["Smart Import status", "Count"],
+      ...importStatusRows.map((row) => [row.name, row.value]),
     ];
 
     const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -158,6 +182,10 @@ export default function ReportsPage() {
         <StatCard label="Card mismatch" value={cardMismatch} accent={Math.abs(cardMismatch) > 5 ? "rose" : "emerald"} />
         <StatCard label="Fuel variance alerts" value={fuelReconciliationSummary.alertCount} accent={fuelReconciliationSummary.alertCount ? "rose" : "emerald"} />
         <StatCard label="Fuel variance gallons" value={fuelReconciliationSummary.totalVariance} accent={Math.abs(fuelReconciliationSummary.totalVariance) > 25 ? "rose" : "slate"} />
+        <StatCard label="Cash flow deposits" value={cashFlow.operatingInflows} accent="cyan" />
+        <StatCard label="Non-operating cash out" value={cashFlow.nonOperatingOutflows} accent={cashFlow.nonOperatingOutflows ? "amber" : "slate"} />
+        <StatCard label="Net cash movement" value={cashFlow.netCashMovement} accent={cashFlow.netCashMovement >= 0 ? "emerald" : "rose"} />
+        <StatCard label="Smart Import files" value={importsInRange.length} accent="slate" />
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>
@@ -297,6 +325,35 @@ export default function ReportsPage() {
           </table>
         </div>
       </section>
+
+      <div className="mt-8 grid gap-6 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Cash flow from imports</h3>
+          <p className="mt-1 text-sm text-slate-500">Bank-statement movement separated from operating profit.</p>
+          <div className="mt-5 h-72">
+            {cashFlowRows.length ? <ResponsiveContainer height="100%" minWidth={0} width="100%"><BarChart data={cashFlowRows}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="name" stroke="#64748b" /><YAxis stroke="#64748b" /><Tooltip formatter={(value) => currency(Number(value))} /><Bar dataKey="value" fill="#0891b2" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="text-sm text-slate-500">No cash-flow import rows in this range.</p>}
+          </div>
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <h3 className="text-xl font-black text-slate-950">Smart Import audit</h3>
+          <p className="mt-1 text-sm text-slate-500">Import lifecycle status for files created in the selected range.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Posted</p><p className="mt-2 text-xl font-black">{importsInRange.filter((record) => record.status === "posted" || record.status === "imported").length}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Rolled back</p><p className="mt-2 text-xl font-black">{importsInRange.filter((record) => record.status === "rolled_back").length}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Rows reviewed</p><p className="mt-2 text-xl font-black">{data.import_rows.filter((row) => row.reviewed_at && row.created_at && row.created_at.slice(0, 10) >= startDate && row.created_at.slice(0, 10) <= endDate).length}</p></div>
+            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Duplicate rows</p><p className="mt-2 text-xl font-black">{data.import_rows.filter((row) => row.duplicate_reason && row.created_at && row.created_at.slice(0, 10) >= startDate && row.created_at.slice(0, 10) <= endDate).length}</p></div>
+          </div>
+          <div className="mt-5 space-y-2">
+            {importStatusRows.map((row) => (
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3" key={row.name}>
+                <span className="text-sm font-bold capitalize text-slate-700">{row.name}</span>
+                <span className="text-sm font-black text-slate-950">{row.value}</span>
+              </div>
+            ))}
+            {!importStatusRows.length ? <p className="text-sm text-slate-500">No Smart Import files were created in this range.</p> : null}
+          </div>
+        </section>
+      </div>
 
       <div className="mt-8 grid gap-6 xl:grid-cols-2">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">

@@ -1,5 +1,6 @@
 import type {
   CommandCenterData,
+  CashFlowEntry,
   DailySale,
   DeliEntry,
   Expense,
@@ -159,6 +160,42 @@ export function posSalesBySource(rows: PosImportRow[], start?: string, end?: str
       return sources;
     }, {}),
   ).sort((a, b) => b.sales - a.sales);
+}
+
+export function cashFlowEntriesInRange(entries: CashFlowEntry[], start?: string, end?: string) {
+  return entries.filter((entry) => inDateRange(entry.date, start, end));
+}
+
+export function cashFlowBreakdown(entries: CashFlowEntry[], start?: string, end?: string) {
+  return cashFlowEntriesInRange(entries, start, end).reduce<Record<string, number>>((groups, entry) => {
+    groups[entry.flow_type] = (groups[entry.flow_type] ?? 0) + entry.amount;
+    return groups;
+  }, {});
+}
+
+export function cashFlowSummary(entries: CashFlowEntry[], start?: string, end?: string) {
+  const rows = cashFlowEntriesInRange(entries, start, end);
+  const operatingInflows = sum(
+    rows
+      .filter((entry) => entry.flow_type === "card_processor_deposit" || entry.flow_type === "cash_deposit")
+      .map((entry) => entry.amount),
+  );
+  const nonOperatingOutflows = sum(
+    rows
+      .filter((entry) => entry.flow_type === "loan_payment" || entry.flow_type === "owner_draw" || entry.flow_type === "transfer")
+      .map((entry) => Math.abs(entry.amount)),
+  );
+  const fees = sum(rows.filter((entry) => entry.flow_type === "fee").map((entry) => Math.abs(entry.amount)));
+  const netCashMovement = sum(rows.map((entry) => entry.amount));
+
+  return {
+    rows,
+    operatingInflows,
+    nonOperatingOutflows,
+    fees,
+    netCashMovement,
+    breakdown: cashFlowBreakdown(entries, start, end),
+  };
 }
 
 export function totalInsideSales(sales: DailySale[]) {
