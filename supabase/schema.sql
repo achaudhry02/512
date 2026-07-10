@@ -4,9 +4,27 @@ create table if not exists public.users (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   full_name text,
+  role text not null default 'owner' check (role in ('owner', 'manager', 'employee', 'accountant')),
+  selected_store_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.users add column if not exists role text not null default 'owner';
+alter table public.users add column if not exists selected_store_id uuid;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'users_role_check'
+      and conrelid = 'public.users'::regclass
+  ) then
+    alter table public.users
+      add constraint users_role_check check (role in ('owner', 'manager', 'employee', 'accountant'));
+  end if;
+end $$;
 
 create table if not exists public.stores (
   id uuid primary key default gen_random_uuid(),
@@ -18,6 +36,18 @@ create table if not exists public.stores (
   zip text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists public.store_members (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  role text not null default 'owner' check (role in ('owner', 'manager', 'employee', 'accountant')),
+  invited_email text,
+  accepted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id)
 );
 
 create table if not exists public.daily_sales (
@@ -169,6 +199,41 @@ create table if not exists public.monthly_totals (
     end
   ) stored,
   unique (user_id, store_id, year, month)
+);
+
+create table if not exists public.cash_reconciliations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  date date not null,
+  starting_cash numeric(12,2) not null default 0,
+  ending_cash numeric(12,2) not null default 0,
+  expected_cash_sales numeric(12,2) not null default 0,
+  cash_drops numeric(12,2) not null default 0,
+  paid_outs numeric(12,2) not null default 0,
+  lottery_payouts numeric(12,2) not null default 0,
+  cash_over_short numeric(12,2) not null default 0,
+  pos_card_total numeric(12,2) not null default 0,
+  processor_card_total numeric(12,2) not null default 0,
+  ebt_total numeric(12,2) not null default 0,
+  gift_card_total numeric(12,2) not null default 0,
+  other_tender_total numeric(12,2) not null default 0,
+  bank_deposit_amount numeric(12,2) not null default 0,
+  status text not null default 'draft' check (status in ('draft', 'balanced', 'needs_review')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  expected_ending_cash numeric generated always as (
+    starting_cash + expected_cash_sales - cash_drops - paid_outs - lottery_payouts
+  ) stored,
+  variance numeric generated always as (
+    ending_cash - (starting_cash + expected_cash_sales - cash_drops - paid_outs - lottery_payouts)
+  ) stored,
+  is_balanced boolean generated always as (
+    abs(ending_cash - (starting_cash + expected_cash_sales - cash_drops - paid_outs - lottery_payouts)) <= 1
+    and abs(pos_card_total - processor_card_total) <= 1
+  ) stored,
+  unique (user_id, store_id, date)
 );
 
 create table if not exists public.expenses (
@@ -544,10 +609,15 @@ create table if not exists public.product_rules (
 );
 
 create index if not exists stores_user_id_idx on public.stores(user_id);
+create index if not exists users_selected_store_id_idx on public.users(selected_store_id);
+create index if not exists store_members_user_store_idx on public.store_members(user_id, store_id);
+create index if not exists store_members_store_role_idx on public.store_members(store_id, role);
 create index if not exists daily_sales_user_store_date_idx on public.daily_sales(user_id, store_id, date desc);
 create unique index if not exists daily_sales_user_store_date_unique_idx on public.daily_sales(user_id, store_id, date);
 create index if not exists monthly_totals_user_store_period_idx on public.monthly_totals(user_id, store_id, year desc, month desc);
 create unique index if not exists monthly_totals_user_store_period_unique_idx on public.monthly_totals(user_id, store_id, year, month);
+create index if not exists cash_reconciliations_user_store_date_idx on public.cash_reconciliations(user_id, store_id, date desc);
+create unique index if not exists cash_reconciliations_user_store_date_unique_idx on public.cash_reconciliations(user_id, store_id, date);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
 create index if not exists fuel_entries_user_store_date_idx on public.fuel_entries(user_id, store_id, date desc);
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
@@ -592,9 +662,19 @@ create trigger set_stores_updated_at
 before update on public.stores
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_store_members_updated_at on public.store_members;
+create trigger set_store_members_updated_at
+before update on public.store_members
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_daily_sales_updated_at on public.daily_sales;
 create trigger set_daily_sales_updated_at
 before update on public.daily_sales
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_cash_reconciliations_updated_at on public.cash_reconciliations;
+create trigger set_cash_reconciliations_updated_at
+before update on public.cash_reconciliations
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_monthly_totals_updated_at on public.monthly_totals;
@@ -679,8 +759,10 @@ for each row execute function public.set_updated_at();
 
 alter table public.users enable row level security;
 alter table public.stores enable row level security;
+alter table public.store_members enable row level security;
 alter table public.daily_sales enable row level security;
 alter table public.monthly_totals enable row level security;
+alter table public.cash_reconciliations enable row level security;
 alter table public.expenses enable row level security;
 alter table public.fuel_entries enable row level security;
 alter table public.lottery_entries enable row level security;
@@ -703,11 +785,24 @@ alter table public.product_rules enable row level security;
 
 drop policy if exists "Users can manage their own profile" on public.users;
 create policy "Users can manage their own profile" on public.users
-for all using (auth.uid() = id) with check (auth.uid() = id);
+for all
+to authenticated
+using ((select auth.uid()) = id)
+with check ((select auth.uid()) = id);
 
 drop policy if exists "Users can manage their own stores" on public.stores;
 create policy "Users can manage their own stores" on public.stores
-for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own store memberships" on public.store_members;
+create policy "Users can manage their own store memberships" on public.store_members
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can manage their own daily sales" on public.daily_sales;
 create policy "Users can manage their own daily sales" on public.daily_sales
@@ -715,6 +810,13 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "Users can manage their own monthly totals" on public.monthly_totals;
 create policy "Users can manage their own monthly totals" on public.monthly_totals
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own cash reconciliations" on public.cash_reconciliations;
+create policy "Users can manage their own cash reconciliations" on public.cash_reconciliations
 for all
 to authenticated
 using ((select auth.uid()) = user_id)
@@ -902,7 +1004,11 @@ create policy "Users can manage their own product rules" on public.product_rules
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on table public.users to authenticated;
+grant select, insert, update, delete on table public.stores to authenticated;
+grant select, insert, update, delete on table public.store_members to authenticated;
 grant select, insert, update, delete on table public.monthly_totals to authenticated;
+grant select, insert, update, delete on table public.cash_reconciliations to authenticated;
 
 create table if not exists public.pos_systems (
   id uuid primary key default gen_random_uuid(),

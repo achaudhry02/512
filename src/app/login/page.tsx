@@ -7,7 +7,7 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/c
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -24,6 +24,18 @@ export default function LoginPage() {
     }
 
     let mounted = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const urlMessage = params.get("message");
+    const urlError = params.get("error_description") ?? params.get("error");
+
+    if (urlMessage) {
+      setMessage(urlMessage);
+    }
+
+    if (urlError) {
+      setError(urlError);
+    }
 
     supabase.auth.getSession().then(({ data }) => {
       console.info("[auth] login page getSession", {
@@ -72,11 +84,16 @@ export default function LoginPage() {
     }
 
     const result =
-      mode === "signup"
+      mode === "reset"
+        ? await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/login?message=Password reset link accepted. Sign in with your new password.`,
+          })
+        : mode === "signup"
         ? await supabase.auth.signUp({
             email,
             password,
             options: {
+              emailRedirectTo: `${window.location.origin}/login?message=Email verified. You can sign in now.`,
               data: {
                 full_name: fullName,
               },
@@ -86,11 +103,23 @@ export default function LoginPage() {
 
     if (result.error) {
       setLoading(false);
-      setError(result.error.message);
+      setError(
+        result.error.message.includes("Invalid login credentials")
+          ? "Email or password is incorrect. Check your credentials or reset your password."
+          : result.error.message,
+      );
       return;
     }
 
-    if (mode === "signup" && !result.data.session) {
+    if (mode === "reset") {
+      setLoading(false);
+      setMessage("Password reset email sent. Check your inbox and follow the link.");
+      return;
+    }
+
+    const hasAuthSession = "session" in result.data && Boolean(result.data.session);
+
+    if (mode === "signup" && !hasAuthSession) {
       setLoading(false);
       setMessage("Check your email to confirm your account, then sign in.");
       return;
@@ -144,7 +173,7 @@ export default function LoginPage() {
           ) : null}
 
           <form className="mt-8 rounded-[2rem] border border-white/80 bg-white p-5 shadow-premium" onSubmit={handleSubmit}>
-            <div className="mb-5 grid grid-cols-2 rounded-2xl bg-slate-100 p-1 text-sm font-black">
+            <div className="mb-5 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black">
               <button
                 className={`rounded-xl px-3 py-2 transition ${
                   mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
@@ -162,6 +191,15 @@ export default function LoginPage() {
                 type="button"
               >
                 Sign up
+              </button>
+              <button
+                className={`rounded-xl px-3 py-2 transition ${
+                  mode === "reset" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+                onClick={() => setMode("reset")}
+                type="button"
+              >
+                Reset
               </button>
             </div>
 
@@ -190,6 +228,7 @@ export default function LoginPage() {
               />
             </label>
 
+            {mode !== "reset" ? (
             <label className="mb-4 block">
               <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Password</span>
               <input
@@ -202,6 +241,7 @@ export default function LoginPage() {
                 value={password}
               />
             </label>
+            ) : null}
 
             {error ? <p className="mb-4 text-sm font-semibold text-red-600">{error}</p> : null}
             {message ? <p className="mb-4 text-sm font-semibold text-emerald-700">{message}</p> : null}
@@ -211,7 +251,7 @@ export default function LoginPage() {
               disabled={loading}
               type="submit"
             >
-              {loading ? "Working..." : mode === "login" ? "Login" : "Create account"}
+              {loading ? "Working..." : mode === "login" ? "Login" : mode === "reset" ? "Send reset email" : "Create account"}
               <ArrowRight className="h-4 w-4" />
             </button>
 

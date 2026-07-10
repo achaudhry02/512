@@ -1,12 +1,12 @@
 "use client";
 
-import { Save } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useCommandCenter } from "@/lib/data-provider";
 
 export default function SettingsPage() {
-  const { profile, store, updateProfile, updateStore } = useCommandCenter();
+  const { createStore, profile, selectStore, store, stores, updateProfile, updateStore } = useCommandCenter();
   const [fullName, setFullName] = useState("");
   const [storeForm, setStoreForm] = useState({
     name: "",
@@ -15,7 +15,9 @@ export default function SettingsPage() {
     state: "",
     zip: "",
   });
+  const [newStoreName, setNewStoreName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +55,23 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleCreateStore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreating(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      await createStore({ name: newStoreName || "New Convenience Store" });
+      setNewStoreName("");
+      setMessage("Store created and selected.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to create store.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -71,6 +90,15 @@ export default function SettingsPage() {
             <p className="mt-1 text-sm font-medium text-slate-500">Owner identity and store information for the workspace.</p>
           </div>
           <div className="grid gap-4 p-5 md:grid-cols-2 sm:p-6">
+            <label className="block md:col-span-2">
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Role</span>
+              <input
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-semibold capitalize text-slate-500"
+                disabled
+                type="text"
+                value={profile?.role ?? "owner"}
+              />
+            </label>
             <label className="block">
               <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Full name</span>
               <input
@@ -135,7 +163,49 @@ export default function SettingsPage() {
         </form>
 
         <aside className="rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
-          <h3 className="text-xl font-black text-slate-950">Production readiness</h3>
+          <h3 className="text-xl font-black text-slate-950">Stores</h3>
+          <div className="mt-5 space-y-3">
+            {stores.map((candidate) => (
+              <button
+                className={`w-full rounded-2xl border p-4 text-left text-sm transition ${
+                  candidate.id === store?.id
+                    ? "border-cyan-200 bg-cyan-50 text-cyan-950"
+                    : "border-slate-100 bg-slate-50/80 text-slate-600 hover:border-slate-200"
+                }`}
+                key={candidate.id}
+                onClick={() => void selectStore(candidate.id)}
+                type="button"
+              >
+                <span className="block font-black text-slate-950">{candidate.name}</span>
+                <span className="mt-1 block font-semibold">
+                  {[candidate.city, candidate.state].filter(Boolean).join(", ") || "No address saved"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <form className="mt-5 rounded-2xl border border-slate-100 bg-slate-50/80 p-4" onSubmit={handleCreateStore}>
+            <label className="block">
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">New store</span>
+              <input
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
+                onChange={(event) => setNewStoreName(event.target.value)}
+                placeholder="Second location"
+                type="text"
+                value={newStoreName}
+              />
+            </label>
+            <button
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+              disabled={creating}
+              type="submit"
+            >
+              <Plus className="h-4 w-4" />
+              {creating ? "Creating..." : "Create store"}
+            </button>
+          </form>
+
+          <h3 className="mt-8 text-xl font-black text-slate-950">Production readiness</h3>
           <div className="mt-5 space-y-3 text-sm text-slate-600">
             <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
               <p className="font-bold text-slate-950">Authentication</p>

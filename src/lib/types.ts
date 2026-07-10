@@ -89,10 +89,14 @@ export type PaymentMethod =
   | "ACH"
   | "Other";
 
+export type UserRole = "owner" | "manager" | "employee" | "accountant";
+
 export type UserProfile = {
   id: string;
   email: string;
   full_name: string | null;
+  role: UserRole;
+  selected_store_id: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -107,6 +111,12 @@ export type Store = {
   zip: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type StoreMember = EntryBase & {
+  role: UserRole;
+  invited_email: string | null;
+  accepted_at: string | null;
 };
 
 export type EntryBase = {
@@ -182,6 +192,28 @@ export type MonthlyTotal = EntryBase & {
   repairs_maintenance: number;
   miscellaneous_expenses: number;
   notes: string | null;
+};
+
+export type CashReconciliation = EntryBase & {
+  date: string;
+  starting_cash: number;
+  ending_cash: number;
+  expected_cash_sales: number;
+  cash_drops: number;
+  paid_outs: number;
+  lottery_payouts: number;
+  cash_over_short: number;
+  pos_card_total: number;
+  processor_card_total: number;
+  ebt_total: number;
+  gift_card_total: number;
+  other_tender_total: number;
+  bank_deposit_amount: number;
+  status: "draft" | "balanced" | "needs_review";
+  notes: string | null;
+  expected_ending_cash?: number;
+  variance?: number;
+  is_balanced?: boolean;
 };
 
 export type PosSystem = EntryBase & {
@@ -556,6 +588,7 @@ export type ParsedImportResult = {
 export type TableName =
   | "daily_sales"
   | "monthly_totals"
+  | "cash_reconciliations"
   | "expenses"
   | "fuel_entries"
   | "lottery_entries"
@@ -567,6 +600,7 @@ export type ResourceTableName = "products" | "vendors" | "employees";
 export type TableRowMap = {
   daily_sales: DailySale;
   monthly_totals: MonthlyTotal;
+  cash_reconciliations: CashReconciliation;
   expenses: Expense;
   fuel_entries: FuelEntry;
   lottery_entries: LotteryEntry;
@@ -583,6 +617,7 @@ export type ResourceRowMap = {
 export type CommandCenterData = {
   daily_sales: DailySale[];
   monthly_totals: MonthlyTotal[];
+  cash_reconciliations: CashReconciliation[];
   expenses: Expense[];
   fuel_entries: FuelEntry[];
   lottery_entries: LotteryEntry[];

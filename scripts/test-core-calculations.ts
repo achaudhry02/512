@@ -114,6 +114,7 @@ const dailySale = (date: string): DailySale => ({
 
 const aggregateFixture: CommandCenterData = {
   monthly_totals: [],
+  cash_reconciliations: [],
   daily_sales: [dailySale("2026-06-01"), dailySale("2026-06-02")],
   fuel_entries: [{ id: "fuel", user_id: "user", store_id: "store", date: "2026-06-01", gallons_sold: 100, retail_price_per_gallon: 3.6, cost_per_gallon: 3.3, notes: null }],
   lottery_entries: [], deli_entries: [], expenses: [],

@@ -50,6 +50,11 @@ export default function ReportsPage() {
   const posFuelGallons = sum(report.posRows.map((row) => row.fuel_gallons));
   const posFuelSales = sum(report.posRows.map((row) => row.fuel_sales));
   const posErrorRows = data.pos_import_rows.filter((row) => row.validation_errors.length);
+  const reconciliationsInRange = data.cash_reconciliations.filter((entry) => entry.date >= startDate && entry.date <= endDate);
+  const reconciledDates = new Set(reconciliationsInRange.map((entry) => entry.date));
+  const unreconciledDays = report.dailySales.filter((sale) => !reconciledDates.has(sale.date)).length;
+  const cashOverShort = reconciliationsInRange.reduce((total, entry) => total + (entry.variance ?? entry.cash_over_short), 0);
+  const cardMismatch = reconciliationsInRange.reduce((total, entry) => total + (entry.processor_card_total - entry.pos_card_total), 0);
 
   function exportCsv() {
     const rows: (string | number)[][] = [
@@ -69,6 +74,9 @@ export default function ReportsPage() {
       ["Inventory value", inventoryValue],
       ["POS fuel gallons", posFuelGallons],
       ["POS fuel sales", posFuelSales],
+      ["Cash over/short", cashOverShort],
+      ["Unreconciled days", unreconciledDays],
+      ["Card batch mismatch", cardMismatch],
       ["Profit margin", `${report.profitMargin.toFixed(2)}%`],
       [],
       ["Expenses by category", "Amount"],
@@ -131,6 +139,9 @@ export default function ReportsPage() {
         <StatCard label="Payroll" value={report.payrollCost} accent="rose" />
         <StatCard label="Net profit" value={report.netProfit} accent={report.netProfit >= 0 ? "emerald" : "rose"} />
         <StatCard label="Inventory value" value={inventoryValue} accent="slate" />
+        <StatCard label="Cash over/short" value={cashOverShort} accent={Math.abs(cashOverShort) > 5 ? "rose" : "emerald"} />
+        <StatCard label="Unreconciled days" value={unreconciledDays} accent={unreconciledDays ? "amber" : "emerald"} />
+        <StatCard label="Card mismatch" value={cardMismatch} accent={Math.abs(cardMismatch) > 5 ? "rose" : "emerald"} />
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>

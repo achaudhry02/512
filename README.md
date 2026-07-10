@@ -13,8 +13,10 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 
 ## Features
 
-- Supabase login and signup
+- Supabase login, signup, password reset, email verification handling, and server-side protected routes
 - Row-level security so each user only sees their own store data
+- Role-ready profile/store structure for owner, manager, employee, and accountant access
+- Multi-store switcher with create/edit store settings
 - Dashboard with sales, gross profit, net profit estimate, fuel profit, lottery profit, deli sales, expenses, payroll, best/worst categories, and charts
 - Add, edit, delete, and date-filter entries for:
   - Daily sales
@@ -37,6 +39,7 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Smart Import for PDF, Excel, and CSV files with editable review before saving
 - POS Integrations for flexible CSV imports from Gilbarco Passport, Verifone Commander, NCR Counterpoint, Square, Clover, Lightspeed, Shopify POS, Toast, Shift4, Heartland, CStoreOffice / Petrosoft, PDI, and NCR / Radiant
 - POS column mapping templates, duplicate handling, import history, payment breakdowns, department sales, fuel gallons/sales, tax/fees, discounts, refunds, voids, and unmapped/error reports
+- Cash Reconciliation for drawer cash, drops, paid-outs, lottery payouts, POS/card batch matching, bank deposits, over/short alerts, and unreconciled-day reporting
 - Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
 - Product Sales Breakdown, Vendor Spend, and Category Profit reports
 - Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
@@ -59,6 +62,8 @@ Then fill in:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
+# Preferred for new Supabase projects. NEXT_PUBLIC_SUPABASE_ANON_KEY is still supported.
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
@@ -119,6 +124,20 @@ The app automatically creates a profile in `public.users` and a default store fo
 
 Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repeatable `if not exists` statements and replaces policies/triggers safely so an existing project can be upgraded in place.
 
+### Auth, roles, and multi-store setup
+
+The app uses Supabase SSR middleware to protect `/dashboard`, `/daily-sales`, `/bulk-entry`, `/inventory`, `/vendors`, `/expenses`, `/cash-reconciliation`, `/smart-import`, `/pos-integrations`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/employees`, `/reports`, and `/settings`. Unauthenticated users are redirected to `/login` before protected pages render.
+
+`supabase/schema.sql` adds `users.role`, `users.selected_store_id`, and `store_members`.
+
+Roles are stored as `owner`, `manager`, `employee`, or `accountant` so stricter permissions can be layered in without changing the profile model. Store owners can create additional stores from Settings and switch the active store from the sidebar.
+
+### Cash reconciliation
+
+Open `Cash Reconciliation` from the sidebar to save one reconciliation per store/date. The page tracks starting drawer cash, ending cash, expected cash sales, drops, paid-outs, lottery payouts, POS/card batch totals, EBT, gift card, other tender, bank deposit amount, status, and notes.
+
+Use `Pull expected totals` to pull cash/card/tender values from saved Daily Sales and POS imports for the selected date. The page calculates expected ending cash, cash variance, card batch mismatch, and balanced/needs-review status. Dashboard and Reports show unreconciled days, cash over/short, and card mismatch totals.
+
 ### Bulk Entry schema notes
 
 `supabase/schema.sql` adds these monthly-entry columns to `daily_sales`:
@@ -176,7 +195,10 @@ The schema creates:
 
 - `users`
 - `stores`
+- `store_members`
 - `daily_sales`
+- `monthly_totals`
+- `cash_reconciliations`
 - `expenses`
 - `fuel_entries`
 - `lottery_entries`

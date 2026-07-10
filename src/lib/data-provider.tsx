@@ -28,11 +28,15 @@ import type {
   TableName,
   TableRowMap,
   UserProfile,
+  UserRole,
 } from "@/lib/types";
+
+const selectedStoreStorageKey = "store-command-center-selected-store-id";
 
 const tableNames: TableName[] = [
   "daily_sales",
   "monthly_totals",
+  "cash_reconciliations",
   "expenses",
   "fuel_entries",
   "lottery_entries",
@@ -74,6 +78,7 @@ function orderColumnForTable(table: TableName) {
 const emptyData: CommandCenterData = {
   daily_sales: [],
   monthly_totals: [],
+  cash_reconciliations: [],
   expenses: [],
   fuel_entries: [],
   lottery_entries: [],
@@ -113,6 +118,7 @@ type CommandCenterContextValue = {
   user: User | null;
   profile: UserProfile | null;
   store: Store | null;
+  stores: Store[];
   data: CommandCenterData;
   authLoading: boolean;
   loading: boolean;
@@ -154,14 +160,20 @@ type CommandCenterContextValue = {
     duplicateStrategy: "skip" | "overwrite";
     rows: PosPreviewRow[];
   }) => Promise<void>;
-  updateProfile: (payload: Partial<Pick<UserProfile, "full_name">>) => Promise<void>;
+  updateProfile: (payload: Partial<Pick<UserProfile, "full_name" | "selected_store_id">>) => Promise<void>;
   updateStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
+  createStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
+  selectStore: (storeId: string) => Promise<void>;
 };
 
 const CommandCenterContext = createContext<CommandCenterContextValue | undefined>(undefined);
 
 function normalizedVendor(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || "unknown vendor";
+}
+
+function normalizeRole(role: unknown): UserRole {
+  return role === "manager" || role === "employee" || role === "accountant" ? role : "owner";
 }
 
 function rowDate(row: ParsedImportRow) {
@@ -244,6 +256,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [store, setStore] = useState<Store | null>(null);
+  const [stores, setStores] = useState<Store[]>([]);
   const [data, setData] = useState<CommandCenterData>(emptyData);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -255,6 +268,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setProfile(null);
       setStore(null);
+      setStores([]);
       setData(emptyData);
       setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
       setAuthLoading(false);
@@ -267,6 +281,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setUser(activeUser);
       setProfile(null);
       setStore(null);
+      setStores([]);
       setData(emptyData);
       setError(null);
       setAuthLoading(false);
@@ -291,6 +306,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           typeof activeUser.user_metadata?.full_name === "string"
             ? activeUser.user_metadata.full_name
             : null,
+        role: "owner",
+        selected_store_id: null,
       };
 
       const { data: profileRow, error: profileError } = await supabase
@@ -313,7 +330,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         throw storesResponse.error;
       }
 
-      let stores = storesResponse.data;
+      let stores = (storesResponse.data ?? []) as Store[];
 
       if (!stores?.length) {
         const { data: newStore, error: storeError } = await supabase
@@ -336,7 +353,19 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         stores = newStore ? [newStore] : [];
       }
 
-      const activeStore = stores?.[0] as Store | undefined;
+      const selectedStoreId =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(selectedStoreStorageKey)
+          : null;
+      const profileSelectedStoreId = (profileRow as UserProfile | null)?.selected_store_id ?? null;
+      const activeStore =
+        stores.find((candidate) => candidate.id === selectedStoreId) ??
+        stores.find((candidate) => candidate.id === profileSelectedStoreId) ??
+        stores[0];
+
+      if (activeStore && selectedStoreId !== activeStore.id && typeof window !== "undefined") {
+        window.localStorage.setItem(selectedStoreStorageKey, activeStore.id);
+      }
       const nextData: CommandCenterData = { ...emptyData };
 
       if (activeStore) {
@@ -442,8 +471,13 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      setProfile(profileRow as UserProfile);
+      setProfile({
+        ...(profileRow as UserProfile),
+        role: normalizeRole((profileRow as UserProfile).role),
+        selected_store_id: (profileRow as UserProfile).selected_store_id ?? activeStore?.id ?? null,
+      });
       setStore(activeStore ?? null);
+      setStores(stores);
       setData(nextData);
     } catch (loadError) {
       setUser(activeUser);
@@ -454,6 +488,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           typeof activeUser.user_metadata?.full_name === "string"
             ? activeUser.user_metadata.full_name
             : null,
+        role: "owner",
+        selected_store_id: null,
       });
       setError(loadError instanceof Error ? loadError.message : "Unable to load store data.");
     } finally {
@@ -484,6 +520,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setProfile(null);
       setStore(null);
+      setStores([]);
       setData(emptyData);
       setError("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
       setAuthLoading(false);
@@ -1532,7 +1569,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   );
 
   const updateProfile = useCallback(
-    async (payload: Partial<Pick<UserProfile, "full_name">>) => {
+    async (payload: Partial<Pick<UserProfile, "full_name" | "selected_store_id">>) => {
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in to update your profile.");
@@ -1551,6 +1588,33 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await refresh();
     },
     [refresh, user],
+  );
+
+  const selectStore = useCallback(
+    async (storeId: string) => {
+      if (!stores.some((candidate) => candidate.id === storeId)) {
+        throw new Error("You do not have access to that store.");
+      }
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(selectedStoreStorageKey, storeId);
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (supabase && user) {
+        const { error: updateError } = await supabase
+          .from("users")
+          .update({ selected_store_id: storeId })
+          .eq("id", user.id);
+
+        if (updateError) {
+          console.warn("Unable to persist selected store:", updateError.message);
+        }
+      }
+
+      await refresh();
+    },
+    [refresh, stores, user],
   );
 
   const updateStore = useCallback(
@@ -1576,11 +1640,46 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [refresh, store, user],
   );
 
+  const createStore = useCallback(
+    async (payload: Partial<Omit<Store, "id" | "user_id">>) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) {
+        throw new Error("You must be signed in to create a store.");
+      }
+
+      const { data: newStore, error: insertError } = await supabase
+        .from("stores")
+        .insert({
+          user_id: user.id,
+          name: payload.name || "New Convenience Store",
+          address: payload.address ?? null,
+          city: payload.city ?? null,
+          state: payload.state ?? null,
+          zip: payload.zip ?? null,
+        })
+        .select("*")
+        .single();
+
+      if (insertError) {
+        setError(insertError.message);
+        throw insertError;
+      }
+
+      if (newStore?.id && typeof window !== "undefined") {
+        window.localStorage.setItem(selectedStoreStorageKey, newStore.id);
+      }
+
+      await refresh();
+    },
+    [refresh, user],
+  );
+
   const value = useMemo<CommandCenterContextValue>(
     () => ({
       user,
       profile,
       store,
+      stores,
       data,
       authLoading,
       loading,
@@ -1598,8 +1697,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       savePosImport,
       updateProfile,
       updateStore,
+      createStore,
+      selectStore,
     }),
     [
+      createStore,
       data,
       deleteEntry,
       deleteMonthlyTotal,
@@ -1616,7 +1718,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveSmartImport,
       savePosColumnMapping,
       savePosImport,
+      selectStore,
       store,
+      stores,
       updateProfile,
       updateStore,
       user,

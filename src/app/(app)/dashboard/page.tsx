@@ -111,6 +111,10 @@ export default function DashboardPage() {
   const trend = view === "monthly" && monthlyTrend.length ? monthlyTrend : dailyChart(data);
   const profitLeaks = analyzeProfitLeaks(data).slice(0, 6);
   const todaySale = data.daily_sales.find((sale) => sale.date === today);
+  const reconciledDates = new Set(data.cash_reconciliations.map((entry) => entry.date));
+  const unreconciledDailySales = data.daily_sales.filter((sale) => !reconciledDates.has(sale.date));
+  const cashOverShortTotal = data.cash_reconciliations.reduce((total, entry) => total + (entry.variance ?? entry.cash_over_short), 0);
+  const cardMismatchTotal = data.cash_reconciliations.reduce((total, entry) => total + (entry.processor_card_total - entry.pos_card_total), 0);
   const lowStock = data.products.filter((product) => product.quantity_on_hand <= product.reorder_level);
   const bestSellingItems = Object.values(data.product_sales.reduce<Record<string, { name: string; quantity: number; sales: number }>>((items, sale) => {
     const current = items[sale.product_name] ?? { name: sale.product_name, quantity: 0, sales: 0 };
@@ -331,6 +335,22 @@ export default function DashboardPage() {
           label="Payroll cost"
           trend="Labor"
           value={monthSummary.payrollCost}
+        />
+        <StatCard
+          accent={unreconciledDailySales.length ? "amber" : "emerald"}
+          helper="Daily sales dates without a saved reconciliation"
+          icon={WalletCards}
+          label="Unreconciled days"
+          trend="Cash"
+          value={unreconciledDailySales.length}
+        />
+        <StatCard
+          accent={Math.abs(cashOverShortTotal) > 5 ? "rose" : "emerald"}
+          helper={`Card batch mismatch ${currency(cardMismatchTotal)}`}
+          icon={Gauge}
+          label="Cash over/short"
+          trend="Variance"
+          value={cashOverShortTotal}
         />
       </div>
 

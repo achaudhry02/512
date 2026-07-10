@@ -24,6 +24,7 @@ import {
   Truck,
   UserRoundCog,
   Users,
+  WalletCards,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -40,6 +41,7 @@ const navItems = [
   { href: "/inventory", label: "Inventory", icon: PackageSearch },
   { href: "/vendors", label: "Vendors", icon: Truck },
   { href: "/expenses", label: "Expenses", icon: ReceiptText },
+  { href: "/cash-reconciliation", label: "Cash Reconciliation", icon: WalletCards },
   { href: "/smart-import", label: "Smart Import", icon: ScanLine },
   { href: "/pos-integrations", label: "POS Integrations", icon: PlugZap },
   { href: "/fuel", label: "Fuel Tracking", icon: Fuel },
@@ -54,7 +56,7 @@ const navItems = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { error, loading, profile, store, user } = useCommandCenter();
+  const { error, loading, profile, selectStore, store, stores, user } = useCommandCenter();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -138,12 +140,24 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Store className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-white">{store?.name ?? "Store"}</p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Live Supabase workspace
+              <label className="sr-only" htmlFor="store-switcher">Active store</label>
+              <select
+                className="w-full appearance-none truncate rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 pr-8 text-sm font-bold text-white outline-none transition focus:border-cyan-300"
+                id="store-switcher"
+                onChange={(event) => void selectStore(event.target.value)}
+                value={store?.id ?? ""}
+              >
+                {stores.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-400">
+                {profile?.role ? `${profile.role} access` : "Live Supabase workspace"}
               </p>
             </div>
-            <ChevronDown className="h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none -ml-8 h-4 w-4 text-slate-500" />
           </div>
         </div>
 
