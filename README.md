@@ -517,6 +517,31 @@ Use the upload fixtures in `samples/uploads/` to test Smart Import:
 - `fuel-report.xlsx`
 - `messy-vendor-invoice.pdf`
 
+## Reporting and accountant exports
+
+Open `Reports` to create owner and accountant-ready reports for the active store. The reporting toolbar supports:
+
+- store selection
+- this week, last week, this month, last month, current quarter, year-to-date, and custom ranges
+- including or excluding category-margin estimates
+- summary CSV export
+- printable PDF export
+- an accountant ZIP package with P&L, weekly P&L, expenses, cash flow, payroll, vendor spend, inventory value, category profitability, cash reconciliation, fuel-by-grade, lottery/deli, and import-history CSV files
+
+The detailed operating P&L separates owner draws, loan payments, and transfers from operating expenses. Payroll expense rows and payroll tracker entries are combined once in the payroll line. Monthly Totals records replace daily/POS records for the same covered month to prevent duplicate sales.
+
+Weekly P&L uses daily and imported records only. A monthly total cannot be allocated accurately to a particular week, so monthly-total-only values are omitted from weekly rows and the page displays that limitation. Turn off `Include estimates` to restrict profit to tracked fuel cost, lottery commission, deli cost/waste, and item-level cost data. Actual-only reports can be partial when those costs have not been entered.
+
+Inventory value is a current snapshot rather than a historical month-end balance. Review the generated `README.txt` in each accountant ZIP for the reporting basis used by that package.
+
+With the local app running and the browser-test account created, run the authenticated reporting flow with:
+
+```bash
+npm run test:reports-browser
+```
+
+The test signs in through the UI, verifies the store and date controls, switches estimated values off and on, checks every major report section, validates CSV/PDF/ZIP downloads, and checks the mobile viewport. Override the defaults with `REPORT_TEST_BASE_URL`, `REPORT_TEST_EMAIL`, `REPORT_TEST_PASSWORD`, or `REPORT_TEST_HEADED=1`.
+
 ## Profit calculations
 
 - Fuel profit: `gallons sold * (retail price per gallon - cost per gallon)`
@@ -534,6 +559,7 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run test
+npm run test:reports-browser
 npm run build
 npm run start
 npm run seed

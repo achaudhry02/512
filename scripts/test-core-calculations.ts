@@ -18,6 +18,12 @@ import {
 } from "../src/lib/cash-reconciliation";
 import { aggregateData, posPaymentBreakdown, posSalesBySource, rangesOverlap } from "../src/lib/calculations";
 import {
+  buildDetailedPnl,
+  categoryProfitability,
+  dateRangeForPreset,
+  weeklyProfitRows,
+} from "../src/lib/accountant-reporting";
+import {
   calculateFuelReconciliation,
   fuelReconciliationTotals,
   soldGallonsForDate,
@@ -33,6 +39,7 @@ import {
   monthlyTotalSales,
 } from "../src/lib/monthly-totals";
 import { buildMenuExportCsv, inventoryInsights, productMarginPercent } from "../src/lib/inventory-operations";
+import { buildAccountantPackageFiles } from "../src/lib/report-exports";
 import {
   defaultPosMappings,
   mapRowsToPosPreview,
@@ -395,5 +402,70 @@ assert.equal(posAggregate.source, "daily_and_pos", "POS rows should mark daily r
 assert.equal(posAggregate.insideSales, aggregate.insideSales + 5, "POS net sales should be added to inside sales");
 assert.deepEqual(posSalesBySource([posRow]), [{ name: "Square", sales: 5, rows: 1 }], "POS sales by source should aggregate imported rows");
 assert.equal(posPaymentBreakdown([posRow]).Cash, 5.3, "POS payment breakdown should include cash totals");
+
+assert.deepEqual(
+  dateRangeForPreset("this_month", new Date("2026-06-18T12:00:00Z")),
+  { start: "2026-06-01", end: "2026-06-30" },
+  "report presets should calculate month boundaries in UTC",
+);
+assert.deepEqual(
+  dateRangeForPreset("last_week", new Date("2026-06-18T12:00:00Z")),
+  { start: "2026-06-08", end: "2026-06-14" },
+  "report presets should use Monday through Sunday weeks",
+);
+
+const reportingFixture: CommandCenterData = {
+  ...aggregateFixture,
+  expenses: [
+    { id: "expense-payroll", user_id: "user", store_id: "store", date: "2026-06-01", vendor_name: "Payroll", category: "Payroll", amount: 50, payment_method: "ACH", notes: null },
+    { id: "expense-utilities", user_id: "user", store_id: "store", date: "2026-06-01", vendor_name: "Power", category: "Utilities", amount: 100, payment_method: "ACH", notes: null },
+  ],
+};
+const estimatedPnl = buildDetailedPnl(reportingFixture, "2026-06-01", "2026-06-30", true);
+assert.equal(estimatedPnl.payroll, 250, "P&L payroll should combine payroll entries and payroll expenses once");
+assert.equal(estimatedPnl.operatingExpenses, 100, "P&L operating expenses should exclude payroll from the non-payroll subtotal");
+assert.equal(estimatedPnl.netOperatingProfit, estimatedPnl.report.netProfit, "detailed P&L should reconcile to aggregate net profit");
+
+const nonOperatingPnl = buildDetailedPnl({
+  ...reportingFixture,
+  expenses: [
+    ...reportingFixture.expenses,
+    { id: "expense-draw", user_id: "user", store_id: "store", date: "2026-06-01", vendor_name: "Owner", category: "Owner draw", amount: 75, payment_method: "ACH", notes: null },
+  ],
+}, "2026-06-01", "2026-06-30", true);
+assert.equal(nonOperatingPnl.operatingExpenses, 100, "owner draws should not reduce operating profit");
+assert.equal(nonOperatingPnl.ownerDraws, 75, "owner draw expense rows should appear in non-operating cash");
+
+const actualPnl = buildDetailedPnl(reportingFixture, "2026-06-01", "2026-06-30", false);
+closeTo(actualPnl.grossProfit, 50, "actual-only P&L should exclude estimated category margins");
+assert.equal(actualPnl.revenue, 710, "actual-only P&L should use tracked revenue as its ratio denominator");
+assert.equal(actualPnl.actualOnlyIsPartial, true, "actual-only P&L should disclose partial coverage");
+assert.equal(actualPnl.lotteryCommission, 0, "actual-only P&L should exclude estimated lottery commission");
+assert.equal(actualPnl.deliGrossProfit, 0, "actual-only P&L should exclude estimated deli margin");
+
+const weeklyMonthlyOnly = weeklyProfitRows(
+  { ...aggregateFixture, daily_sales: [], monthly_totals: [savedMonthlyTotal] },
+  "2026-06-01",
+  "2026-06-30",
+  true,
+);
+assert.equal(weeklyMonthlyOnly.reduce((total, row) => total + row.revenue, 0), 0, "weekly P&L should not repeat a monthly total in every week");
+
+const categoryRows = categoryProfitability(aggregateFixture, "2026-06-01", "2026-06-30", true);
+const groceryProfit = categoryRows.find((row) => row.category === "Grocery");
+assert.equal(groceryProfit?.sales, 600, "category profitability should sum daily category sales");
+closeTo(groceryProfit?.grossProfit ?? 0, 168, "category profitability should apply configured or default margins");
+
+const packageFiles = buildAccountantPackageFiles(reportingFixture, {
+  storeName: "Test Store",
+  start: "2026-06-01",
+  end: "2026-06-30",
+  includeEstimates: true,
+});
+assert.ok(packageFiles["pnl.csv"].includes("Net operating profit"), "accountant package should include a detailed P&L");
+assert.ok(packageFiles["weekly-pnl.csv"], "accountant package should include weekly P&L");
+assert.ok(packageFiles["cash-reconciliation.csv"], "accountant package should include cash reconciliation");
+assert.ok(packageFiles["import-history.csv"], "accountant package should include import history");
+assert.ok(packageFiles["README.txt"].includes("Owner draws"), "accountant package should explain non-operating cash treatment");
 
 console.log("Core calculation and bulk-entry validation tests passed.");
