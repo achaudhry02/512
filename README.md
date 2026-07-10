@@ -74,7 +74,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` is only needed for server-side maintenance scripts such as `npm run seed`. Never expose it in client-side code or public hosting logs.
+`SUPABASE_SERVICE_ROLE_KEY` is only needed for server-side maintenance scripts such as `npm run seed` and `npm run test:rls-live`. Never expose it in client-side code or public hosting logs.
 
 Supabase values are required. If they are missing, the app shows a configuration error and does not load fallback data.
 
@@ -129,6 +129,8 @@ This repo includes:
 The app automatically creates a profile in `public.users` and a default store for each authenticated user.
 
 Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repeatable `if not exists` statements and replaces policies/triggers safely so an existing project can be upgraded in place.
+
+For an existing Phase 7 database, `supabase/phase10-trigger-fix.sql` is also available as a focused upgrade. It prevents store deletion cascades from creating inventory reversal rows against a store that is already being removed. Running the full schema applies the same fix.
 
 ### Auth, roles, and multi-store setup
 
@@ -490,6 +492,44 @@ POS_TEST_BASE_URL=http://localhost:3000 POS_TEST_EMAIL=you@example.com POS_TEST_
 POS_TEST_HEADED=1 npm run test:pos-browser
 ```
 
+### Phase 10 automated tests
+
+The default test suite is CI-safe and does not require a live database:
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+`npm run test` covers financial calculations, configurable margins, detailed P&L, cash and fuel reconciliation, Smart Import parsing/classification, POS duplicate skip/overwrite planning, Sunoco parsers, and a static audit of RLS enablement, ownership policies, grants, and update checks for every public table.
+
+Run live two-user Supabase isolation checks separately:
+
+```bash
+npm run test:rls-live
+```
+
+This requires `NEXT_PUBLIC_SUPABASE_URL`, a publishable or anon key, and `SUPABASE_SERVICE_ROLE_KEY`. It creates two confirmed temporary users, proves cross-user reads/writes are blocked, verifies anonymous reads are empty, and removes the test data and users.
+
+With the app running and the browser-test account available, run the isolated critical workflow:
+
+```bash
+npm run dev
+npm run test:e2e
+```
+
+The browser test verifies login and signup mode, creates a temporary store, saves Daily Entry and Bulk Daily Entry data, imports generic POS and Smart Import CSV files, saves cash reconciliation, downloads a report CSV, and deletes the temporary store. Override credentials with `E2E_TEST_EMAIL`, `E2E_TEST_PASSWORD`, `E2E_TEST_BASE_URL`, or set `E2E_TEST_HEADED=1`.
+
+GitHub Actions always runs lint, typecheck, tests, and build. To enable its authenticated integration job, configure these repository secrets:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `E2E_TEST_EMAIL`
+- `E2E_TEST_PASSWORD`
+
 ### Learning system
 
 When a user corrects a row category before confirming an import, Smart Import saves that correction as a future rule:
@@ -577,6 +617,8 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run test
+npm run test:rls-live
+npm run test:e2e
 npm run test:reports-browser
 npm run build
 npm run start

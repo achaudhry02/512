@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  authenticated-integration:
+    needs: quality
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Check integration configuration
+        id: integration
+        shell: bash
+        run: |
+          if [[ -n "$NEXT_PUBLIC_SUPABASE_URL" && -n "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" && -n "$SUPABASE_SERVICE_ROLE_KEY" && -n "$E2E_TEST_EMAIL" && -n "$E2E_TEST_PASSWORD" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Supabase integration secrets are not configured; live RLS and browser tests are skipped."
+          fi
+      - name: Install Chromium
+        if: steps.integration.outputs.enabled == 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Test live RLS isolation
+        if: steps.integration.outputs.enabled == 'true'
+        run: npm run test:rls-live
+      - name: Test authenticated critical workflows
+        if: steps.integration.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          npm run dev > /tmp/cstore-next.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          npx wait-on http://localhost:3000
+          npm run test:e2e

@@ -13,7 +13,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { defaultMarginSettings } from "@/lib/margin-settings";
 import { buildSampleStoreData } from "@/lib/onboarding";
-import type { PosMapping, PosPreviewRow } from "@/lib/pos-import";
+import { planPosDuplicateImport, type PosMapping, type PosPreviewRow } from "@/lib/pos-import";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
   BulkMonthlyEntry,
@@ -401,14 +401,25 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         selected_store_id: null,
       };
 
-      const { data: profileRow, error: profileError } = await supabase
+      const { data: existingProfile, error: profileLookupError } = await supabase
         .from("users")
-        .upsert(profilePayload, { onConflict: "id" })
         .select("*")
-        .single();
+        .eq("id", activeUser.id)
+        .maybeSingle();
 
-      if (profileError) {
-        throw profileError;
+      if (profileLookupError) {
+        throw profileLookupError;
+      }
+
+      let profileRow = existingProfile as UserProfile | null;
+      if (!profileRow) {
+        const { data: insertedProfile, error: profileInsertError } = await supabase
+          .from("users")
+          .insert(profilePayload)
+          .select("*")
+          .single();
+        if (profileInsertError) throw profileInsertError;
+        profileRow = insertedProfile as UserProfile;
       }
 
       const storesResponse = await supabase
@@ -1970,24 +1981,25 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
 
       const existingDuplicateKeys = new Set((existingDuplicateRows ?? []).map((row: { duplicate_key: string }) => row.duplicate_key));
-      const rowsToSave = duplicateStrategy === "skip"
-        ? candidateRows.filter((row) => !existingDuplicateKeys.has(row.duplicate_key))
-        : candidateRows;
+      const { rowsToSave, duplicateKeysToDelete } = planPosDuplicateImport(
+        rows,
+        existingDuplicateKeys,
+        duplicateStrategy,
+      );
 
       if (!rowsToSave.length) {
         await refresh();
         return;
       }
 
-      const duplicateKeys = rowsToSave.map((row) => row.duplicate_key);
-      if (duplicateStrategy === "overwrite" && duplicateKeys.length) {
+      if (duplicateStrategy === "overwrite" && duplicateKeysToDelete.length) {
         const { error: deleteError } = await supabase
           .from("pos_import_rows")
           .delete()
           .eq("user_id", activeUser.id)
           .eq("store_id", activeStore.id)
           .eq("pos_key", posKey)
-          .in("duplicate_key", duplicateKeys);
+          .in("duplicate_key", duplicateKeysToDelete);
 
         if (deleteError) {
           setError(deleteError.message);
@@ -2146,9 +2158,24 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         window.localStorage.setItem(selectedStoreStorageKey, newStore.id);
       }
 
-      await refresh();
+      if (newStore?.id) {
+        const { error: selectionError } = await supabase
+          .from("users")
+          .update({ selected_store_id: newStore.id })
+          .eq("id", user.id);
+        if (selectionError) {
+          setError(selectionError.message);
+          throw selectionError;
+        }
+
+        const createdStore = newStore as Store;
+        setStores((current) => [...current.filter((candidate) => candidate.id !== createdStore.id), createdStore]);
+        setStore(createdStore);
+        setData(emptyData);
+        setProfile((current) => current ? { ...current, selected_store_id: createdStore.id } : current);
+      }
     },
-    [refresh, user],
+    [user],
   );
 
   const saveDefaultMargins = useCallback(async () => {

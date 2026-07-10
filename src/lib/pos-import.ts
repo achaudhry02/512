@@ -345,6 +345,25 @@ export function validatePosPreviewRows(rows: PosPreviewRow[]) {
   return errors;
 }
 
+export function planPosDuplicateImport(
+  rows: PosPreviewRow[],
+  existingDuplicateKeys: ReadonlySet<string>,
+  duplicateStrategy: "skip" | "overwrite",
+) {
+  const candidateRows = rows.filter((row) => row.import_action !== "skip");
+  const rowsToSave = duplicateStrategy === "skip"
+    ? candidateRows.filter((row) => !existingDuplicateKeys.has(row.duplicate_key))
+    : candidateRows;
+
+  return {
+    candidateRows,
+    rowsToSave,
+    duplicateKeysToDelete: duplicateStrategy === "overwrite"
+      ? [...new Set(rowsToSave.map((row) => row.duplicate_key))]
+      : [],
+  };
+}
+
 export function genericPosTemplateCsv() {
   const headers = posFieldOrder.map((field) => genericMapping[field] ?? field);
   const rows = [

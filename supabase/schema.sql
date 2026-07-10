@@ -1642,6 +1642,12 @@ begin
   end if;
 
   if tg_op = 'DELETE' and old.product_id is not null and old.quantity_sold <> 0 then
+    -- A store cascade removes product sales after the parent row is no longer visible.
+    -- Do not create reversal inventory rows against a store that is being deleted.
+    if not exists (select 1 from public.stores where id = old.store_id) then
+      return old;
+    end if;
+
     insert into public.inventory_adjustments (
       user_id, store_id, product_id, adjustment_date, adjustment_type,
       quantity_delta, unit_cost, reason, source_type, source_id
