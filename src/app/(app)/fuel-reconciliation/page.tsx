@@ -260,7 +260,7 @@ export default function FuelReconciliationPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-        <aside className="space-y-6">
+        <aside className="min-w-0 space-y-6">
           <section className="rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -310,7 +310,7 @@ export default function FuelReconciliationPage() {
           </form>
         </aside>
 
-        <main className="space-y-6">
+        <main className="min-w-0 space-y-6">
           <form className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card" onSubmit={handleReconciliationSubmit}>
             <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
               <h3 className="text-xl font-black text-slate-950">{reconciliationId || savedForDate ? "Edit reconciliation" : "New reconciliation"}</h3>

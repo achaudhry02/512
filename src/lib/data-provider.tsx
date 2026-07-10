@@ -11,6 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { defaultMarginSettings } from "@/lib/margin-settings";
+import { buildSampleStoreData } from "@/lib/onboarding";
 import type { PosMapping, PosPreviewRow } from "@/lib/pos-import";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
@@ -211,6 +213,8 @@ type CommandCenterContextValue = {
     notes?: string | null;
     adjustmentDate?: string;
   }) => Promise<void>;
+  saveDefaultMargins: () => Promise<void>;
+  seedSampleData: () => Promise<void>;
 };
 
 const CommandCenterContext = createContext<CommandCenterContextValue | undefined>(undefined);
@@ -2147,6 +2151,66 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     [refresh, user],
   );
 
+  const saveDefaultMargins = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !user || !store) {
+      throw new Error("Select a store before saving margin settings.");
+    }
+
+    const { error: upsertError } = await supabase.from("margin_settings").upsert(
+      defaultMarginSettings.map((setting) => ({
+        user_id: user.id,
+        store_id: store.id,
+        category: setting.category,
+        gross_margin_percent: setting.gross_margin_percent,
+        notes: setting.notes,
+      })),
+      { onConflict: "user_id,store_id,category" },
+    );
+
+    if (upsertError) {
+      setError(upsertError.message);
+      throw upsertError;
+    }
+
+    await refresh();
+  }, [refresh, store, user]);
+
+  const seedSampleData = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !user || !store) {
+      throw new Error("Select a store before adding sample data.");
+    }
+
+    const sample = buildSampleStoreData(new Date().toISOString().slice(0, 10));
+    const scope = { user_id: user.id, store_id: store.id };
+    const insertRows = async (table: string, rows: Record<string, unknown>[]) => {
+      const { error: insertError } = await supabase.from(table).insert(rows.map((row) => ({ ...scope, ...row })));
+      if (insertError) throw insertError;
+    };
+
+    try {
+      if (!data.margin_settings.length) {
+        await saveDefaultMargins();
+      }
+      if (!data.daily_sales.length) await insertRows("daily_sales", sample.dailySales);
+      if (!data.expenses.length) await insertRows("expenses", sample.expenses);
+      if (!data.fuel_entries.length) await insertRows("fuel_entries", sample.fuelEntries);
+      if (!data.lottery_entries.length) await insertRows("lottery_entries", sample.lotteryEntries);
+      if (!data.deli_entries.length) await insertRows("deli_entries", sample.deliEntries);
+      if (!data.fuel_grades.length) await insertRows("fuel_grades", sample.fuelGrades);
+      if (!data.vendors.length) await insertRows("vendors", [sample.vendor]);
+      if (!data.employees.length) await insertRows("employees", [sample.employee]);
+      if (!data.products.length) await insertRows("products", [sample.product]);
+    } catch (seedError) {
+      const message = errorMessage(seedError, "Unable to add sample data.");
+      setError(message);
+      throw seedError;
+    }
+
+    await refresh();
+  }, [data, refresh, saveDefaultMargins, store, user]);
+
   const value = useMemo<CommandCenterContextValue>(
     () => ({
       user,
@@ -2177,6 +2241,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       receivePurchaseOrder,
       cancelPurchaseOrder,
       saveInventoryAdjustment,
+      saveDefaultMargins,
+      seedSampleData,
     }),
     [
       cancelPurchaseOrder,
@@ -2197,6 +2263,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveResource,
       saveBulkMonthlyEntries,
       saveInventoryAdjustment,
+      saveDefaultMargins,
+      seedSampleData,
       saveSmartImport,
       rollbackSmartImport,
       savePosColumnMapping,

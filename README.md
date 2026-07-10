@@ -17,6 +17,9 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - Row-level security so each user only sees their own store data
 - Role-ready profile/store structure for owner, manager, employee, and accountant access
 - Multi-store switcher with create/edit store settings
+- First-run Setup Guide with store details, recommended margins, POS selection, first-entry choices, vendors, fuel grades, employees, templates, and idempotent sample data
+- Owner workflow home with persistent morning, end-of-day, weekly review, and month-end close checklists
+- Context-sensitive help drawer on every authenticated page, with detailed guidance for imports, reconciliation, inventory, and reports
 - Dashboard with sales, gross profit, net profit estimate, fuel profit, lottery profit, deli sales, expenses, payroll, best/worst categories, and charts
 - Add, edit, delete, and date-filter entries for:
   - Daily sales
@@ -129,11 +132,26 @@ Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repea
 
 ### Auth, roles, and multi-store setup
 
-The app uses Supabase SSR middleware to protect `/dashboard`, `/daily-sales`, `/bulk-entry`, `/inventory`, `/vendors`, `/expenses`, `/cash-reconciliation`, `/smart-import`, `/pos-integrations`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/employees`, `/reports`, and `/settings`. Unauthenticated users are redirected to `/login` before protected pages render.
+The app uses Supabase SSR middleware to protect `/dashboard`, `/onboarding`, `/daily-sales`, `/bulk-entry`, `/inventory`, `/vendors`, `/expenses`, `/cash-reconciliation`, `/smart-import`, `/pos-integrations`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/employees`, `/reports`, and `/settings`. Unauthenticated users are redirected to `/login` before protected pages render.
 
 `supabase/schema.sql` adds `users.role`, `users.selected_store_id`, and `store_members`.
 
 Roles are stored as `owner`, `manager`, `employee`, or `accountant` so stricter permissions can be layered in without changing the profile model. Store owners can create additional stores from Settings and switch the active store from the sidebar.
+
+### Onboarding and owner workflow
+
+Open `Setup Guide` after signing in. Progress is calculated independently for the active store from saved margins, POS mappings/imports, sales data, vendors, fuel grades, and employees.
+
+The `Add sample data` action requires confirmation and only populates modules that are currently empty. It does not overwrite existing records. Sample records are labeled `Sample onboarding data` so they can be identified and removed before entering production data.
+
+Downloadable templates are available at:
+
+- `/templates/bulk-daily-entry.csv`
+- `/templates/generic-pos-import.csv`
+
+The dashboard workflow checklist stores completion in the current browser, keyed by store and daily, weekly, or monthly period. It does not create accounting records. Use the linked operating page to complete the underlying work, then mark the checklist item complete.
+
+The question-mark button in the authenticated header opens context-sensitive guidance for the current page. Complex import and reconciliation pages include short review steps and relevant template links without obscuring the primary form.
 
 ### Cash reconciliation
 

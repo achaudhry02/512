@@ -3,13 +3,13 @@
 import {
   BarChart3,
   Beef,
-  Bell,
   CalendarDays,
   ChevronDown,
   ClipboardList,
   Command,
   Fuel,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   PackageSearch,
@@ -31,11 +31,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { useCommandCenter } from "@/lib/data-provider";
+import { ContextHelp } from "@/components/context-help";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/onboarding", label: "Setup Guide", icon: ListChecks },
   { href: "/daily-sales", label: "Daily Sales", icon: ClipboardList },
   { href: "/bulk-entry", label: "Bulk Entry", icon: CalendarDays },
   { href: "/inventory", label: "Inventory", icon: PackageSearch },
@@ -229,17 +231,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-sm font-black text-slate-950">{store?.name ?? "Store dashboard"}</p>
               <p className="text-xs font-semibold text-slate-500">Premium operations dashboard</p>
             </div>
-            <button
-              aria-label="View notifications"
-              className="rounded-2xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm"
-              type="button"
-            >
-              <Bell className="h-4 w-4" />
-            </button>
+            <ContextHelp pathname={pathname} />
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-[1520px] px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
+        <div className="mx-auto w-full max-w-[1520px] px-3 py-5 sm:px-6 sm:py-8 lg:px-8 xl:px-10">
           <div className="mb-6 hidden items-center justify-between rounded-[1.75rem] border border-white/80 bg-white/80 px-5 py-4 shadow-card backdrop-blur-xl lg:flex">
             <div className="flex items-center gap-4">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300 shadow-lg shadow-slate-950/15">
@@ -256,13 +252,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
                 Live data
               </span>
-              <button
-                aria-label="View notifications"
-                className="rounded-2xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm transition hover:border-cyan-200 hover:text-cyan-700"
-                type="button"
-              >
-                <Bell className="h-4 w-4" />
-              </button>
+              <ContextHelp pathname={pathname} />
             </div>
           </div>
 

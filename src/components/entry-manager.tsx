@@ -6,6 +6,7 @@ import { inDateRange, todayIso } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
 import type { TableName, TableRowMap } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
 
 type FieldType = "date" | "text" | "number" | "textarea" | "select";
 
@@ -299,7 +300,7 @@ export function EntryManager<T extends TableName>({
 
       <div className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-100 text-sm">
+          <table className="min-w-[720px] divide-y divide-slate-100 text-sm sm:min-w-full">
             <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
               <tr>
                 {columns.map((column) => (
@@ -349,8 +350,8 @@ export function EntryManager<T extends TableName>({
                 ))
               ) : (
                 <tr>
-                  <td className="px-5 py-12 text-center font-semibold text-slate-500" colSpan={columns.length + 1}>
-                    No entries found. Add your first entry for {todayIso()}.
+                  <td className="p-4" colSpan={columns.length + 1}>
+                    <EmptyState description={`Use the entry form above to record the first value for ${todayIso()}, or change the date filter to review another period.`} title="No entries in this range" />
                   </td>
                 </tr>
               )}

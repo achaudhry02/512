@@ -13,7 +13,6 @@ import {
   YAxis,
 } from "recharts";
 import {
-  ArrowUpRight,
   AlertTriangle,
   Beef,
   CalendarDays,
@@ -23,7 +22,6 @@ import {
   ReceiptText,
   PackageSearch,
   ShoppingBasket,
-  Sparkles,
   Target,
   Ticket,
   TrendingUp,
@@ -33,6 +31,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { LoadingState } from "@/components/loading-state";
+import { OnboardingBanner } from "@/components/onboarding-banner";
+import { OwnerWorkflow } from "@/components/owner-workflow";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import {
@@ -162,46 +162,11 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <section className="mb-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-premium">
-          <div className="absolute right-0 top-0 h-64 w-64 translate-x-20 -translate-y-24 rounded-full bg-cyan-400/20 blur-3xl" />
-          <div className="absolute bottom-0 left-1/3 h-44 w-44 rounded-full bg-blue-500/10 blur-3xl" />
-          <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.16em] text-cyan-100 ring-1 ring-white/10">
-                <Sparkles className="h-3.5 w-3.5" />
-                Executive command snapshot
-              </div>
-              <h3 className="max-w-3xl text-3xl font-black tracking-tight sm:text-5xl">
-                Know what made money today before the day gets away from you.
-              </h3>
-              <p className="mt-4 max-w-2xl text-sm font-medium leading-6 text-slate-300 sm:text-base">
-                Daily sales, margin signals, payroll drag, and expense pressure are combined into one clean operating view for store owners.
-              </p>
-            </div>
-            <div className="grid min-w-72 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-300">{view === "monthly" ? "Monthly net profit estimate" : "Net profit estimate"}</span>
-                <ArrowUpRight className="h-4 w-4 text-emerald-300" />
-              </div>
-              <p className="text-4xl font-black tracking-tight">{currency(activeSummary.netProfit)}</p>
-              <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300"
-                  style={{ width: `${Math.max(12, Math.min(100, Math.abs(activeSummary.profitMargin)))}%` }}
-                />
-              </div>
-              <p className="text-xs font-semibold text-slate-400">
-                {activeSummary.profitMargin.toFixed(1)}% estimated profit margin
-              </p>
-              <p className="text-xs font-black text-cyan-100">
-                {activeSummary.profitAccuracyLabel}
-              </p>
-            </div>
-          </div>
-        </div>
+      <OnboardingBanner data={data} store={store} />
 
-        <div className="grid gap-4 rounded-[2rem] border border-white/80 bg-white p-5 shadow-card">
+      <section className="mb-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+        <OwnerWorkflow storeId={store?.id ?? null} />
+        <div className="grid gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-card">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-cyan-50 p-3 text-cyan-700 ring-1 ring-cyan-100">
               <CalendarDays className="h-5 w-5" />
@@ -212,9 +177,9 @@ export default function DashboardPage() {
             </div>
           </div>
           {[
+            [view === "monthly" ? "Monthly net profit" : "Net profit estimate", activeSummary.netProfit],
             ["Inside sales", activeSummary.insideSales],
             ["Fuel profit", activeSummary.fuelProfit],
-            ["Total expenses", activeSummary.totalExpenses],
             ["Payroll cost", activeSummary.payrollCost],
           ].map(([label, value]) => (
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3" key={label}>

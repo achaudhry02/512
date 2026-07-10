@@ -39,6 +39,7 @@ import {
   monthlyTotalSales,
 } from "../src/lib/monthly-totals";
 import { buildMenuExportCsv, inventoryInsights, productMarginPercent } from "../src/lib/inventory-operations";
+import { buildSampleStoreData, onboardingProgress, ownerWorkflows } from "../src/lib/onboarding";
 import { buildAccountantPackageFiles } from "../src/lib/report-exports";
 import {
   defaultPosMappings,
@@ -467,5 +468,24 @@ assert.ok(packageFiles["weekly-pnl.csv"], "accountant package should include wee
 assert.ok(packageFiles["cash-reconciliation.csv"], "accountant package should include cash reconciliation");
 assert.ok(packageFiles["import-history.csv"], "accountant package should include import history");
 assert.ok(packageFiles["README.txt"].includes("Owner draws"), "accountant package should explain non-operating cash treatment");
+
+const onboardingStore = { id: "store", user_id: "user", name: "Test Store", address: null, city: null, state: null, zip: null };
+const emptyOnboarding = onboardingProgress(aggregateFixture, onboardingStore);
+assert.equal(emptyOnboarding.completed, 2, "store and first daily entry should complete two onboarding steps");
+assert.equal(emptyOnboarding.steps.find((step) => step.key === "margins")?.complete, false, "margin setup should remain incomplete without saved settings");
+const completeOnboarding = onboardingProgress({
+  ...aggregateFixture,
+  margin_settings: [{ id: "margin", user_id: "user", store_id: "store", category: "grocery", gross_margin_percent: 28, notes: null }],
+  pos_column_mappings: [{ id: "mapping", user_id: "user", store_id: "store", pos_key: "generic", template_name: "Onboarding default", mapping: {}, is_default: true, notes: null }],
+  vendors: [{ id: "vendor", user_id: "user", store_id: "store", name: "Vendor", normalized_name: "vendor", category: "Other", total_spend: 0, contact_person: null, phone: null, email: null, products_supplied: null, average_weekly_spend: 0, notes: null }],
+  fuel_grades: [{ id: "grade", user_id: "user", store_id: "store", name: "Regular", code: "REG", sort_order: 1, active: true, target_margin: 0.2, variance_threshold_gallons: 25, notes: null }],
+  employees: [{ id: "employee", user_id: "user", store_id: "store", name: "Employee", role: "Employee/Cashier", hourly_rate: 15, phone: null, email: null, active: true, notes: null }],
+}, onboardingStore);
+assert.equal(completeOnboarding.complete, true, "all onboarding signals should complete the setup checklist");
+
+const sampleStoreData = buildSampleStoreData("2026-07-10");
+assert.deepEqual(sampleStoreData.dailySales.map((sale) => sale.date), ["2026-07-08", "2026-07-09", "2026-07-10"], "sample data should use three unique recent dates");
+assert.ok(sampleStoreData.dailySales.every((sale) => sale.inside_sales > 0), "sample sales should produce useful dashboard totals");
+assert.equal(Object.keys(ownerWorkflows).length, 4, "owner home should include morning, end-of-day, weekly, and month-end workflows");
 
 console.log("Core calculation and bulk-entry validation tests passed.");

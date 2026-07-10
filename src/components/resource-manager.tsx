@@ -3,6 +3,7 @@
 import { Edit3, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
 
 type FieldType = "text" | "email" | "tel" | "number" | "textarea" | "select" | "checkbox";
 
@@ -187,7 +188,7 @@ export function ResourceManager<Row extends { id: string }>({
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-card">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-100 text-sm">
+          <table className="min-w-[720px] divide-y divide-slate-100 text-sm sm:min-w-full">
             <thead className="bg-slate-950 text-left text-xs uppercase text-slate-300"><tr>{columns.map((column) => <th className={cn("px-4 py-3 font-black", column.className)} key={column.header}>{column.header}</th>)}<th className="px-4 py-3 text-right">Actions</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={columns.length + 1}>Loading...</td></tr> : visibleRows.length ? visibleRows.map((row) => (
@@ -195,7 +196,7 @@ export function ResourceManager<Row extends { id: string }>({
                   {columns.map((column) => <td className={cn("px-4 py-3 font-semibold text-slate-700", column.className)} key={column.header}>{column.cell(row)}</td>)}
                   <td className="px-4 py-3"><div className="flex justify-end gap-2"><button aria-label="Edit record" className="rounded-lg border border-slate-200 p-2 hover:text-cyan-700" onClick={() => edit(row)} type="button"><Edit3 className="h-4 w-4" /></button><button aria-label="Delete record" className="rounded-lg border border-slate-200 p-2 hover:text-red-700" onClick={() => void remove(row.id)} type="button"><Trash2 className="h-4 w-4" /></button></div></td>
                 </tr>
-              )) : <tr><td className="px-4 py-12 text-center font-semibold text-slate-500" colSpan={columns.length + 1}>{emptyMessage}</td></tr>}
+              )) : <tr><td className="p-4" colSpan={columns.length + 1}><EmptyState action={!query && !filter ? addLabel : undefined} description={query || filter ? "Change or clear the current search and filter to see more records." : emptyMessage} onAction={!query && !filter ? () => resetForm(true) : undefined} title={query || filter ? "No matching records" : `No ${title.toLowerCase()} yet`} /></td></tr>}
             </tbody>
           </table>
         </div>

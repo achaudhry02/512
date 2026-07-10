@@ -274,7 +274,7 @@ export default function SettingsPage() {
         </aside>
       </div>
 
-      <section className="mt-6 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+      <section className="mt-6 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card" id="margin-settings">
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
           <h3 className="text-xl font-black text-slate-950">Margin settings</h3>
           <p className="mt-1 text-sm font-medium text-slate-500">
