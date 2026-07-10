@@ -6,6 +6,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import {
+  reconciliationTotals,
+  unreconciledDailySaleDates,
+} from "@/lib/cash-reconciliation";
+import {
   aggregateData,
   currency,
   expensesByCategory,
@@ -51,10 +55,10 @@ export default function ReportsPage() {
   const posFuelSales = sum(report.posRows.map((row) => row.fuel_sales));
   const posErrorRows = data.pos_import_rows.filter((row) => row.validation_errors.length);
   const reconciliationsInRange = data.cash_reconciliations.filter((entry) => entry.date >= startDate && entry.date <= endDate);
-  const reconciledDates = new Set(reconciliationsInRange.map((entry) => entry.date));
-  const unreconciledDays = report.dailySales.filter((sale) => !reconciledDates.has(sale.date)).length;
-  const cashOverShort = reconciliationsInRange.reduce((total, entry) => total + (entry.variance ?? entry.cash_over_short), 0);
-  const cardMismatch = reconciliationsInRange.reduce((total, entry) => total + (entry.processor_card_total - entry.pos_card_total), 0);
+  const unreconciledDays = unreconciledDailySaleDates(report.dailySales, reconciliationsInRange).length;
+  const reconciliationSummary = reconciliationTotals(reconciliationsInRange);
+  const cashOverShort = reconciliationSummary.cashOverShort;
+  const cardMismatch = reconciliationSummary.cardMismatch;
 
   function exportCsv() {
     const rows: (string | number)[][] = [
@@ -151,6 +155,59 @@ export default function ReportsPage() {
           <p className="mt-4 text-xs font-medium text-slate-500">Net profit divided by total revenue</p>
         </div>
       </div>
+
+      <section className="mt-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5">
+          <h3 className="text-xl font-black text-slate-950">Cash reconciliation status</h3>
+          <p className="mt-1 text-sm font-medium text-slate-500">Drawer over/short, card batch mismatches, and bank deposit mismatches for the report range.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+              <tr>
+                <th className="px-5 py-4 font-black">Date</th>
+                <th className="px-5 py-4 font-black">Status</th>
+                <th className="px-5 py-4 text-right font-black">Cash over/short</th>
+                <th className="px-5 py-4 text-right font-black">Card mismatch</th>
+                <th className="px-5 py-4 text-right font-black">Bank deposit mismatch</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {reconciliationsInRange.map((entry) => {
+                const cardVariance = entry.processor_card_total - entry.pos_card_total;
+                const depositVariance = entry.bank_deposit_amount - entry.cash_drops;
+
+                return (
+                  <tr className="transition hover:bg-cyan-50/40" key={entry.id}>
+                    <td className="px-5 py-4 font-semibold text-slate-700">{entry.date}</td>
+                    <td className="px-5 py-4">
+                      <span className={`rounded-full px-3 py-1 text-xs font-black capitalize ring-1 ${
+                        entry.status === "balanced"
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                          : entry.status === "needs_review"
+                            ? "bg-amber-50 text-amber-700 ring-amber-200"
+                            : "bg-slate-100 text-slate-700 ring-slate-200"
+                      }`}>
+                        {entry.status.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{currency(entry.variance ?? entry.cash_over_short)}</td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{currency(cardVariance)}</td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{currency(depositVariance)}</td>
+                  </tr>
+                );
+              })}
+              {!reconciliationsInRange.length ? (
+                <tr>
+                  <td className="px-5 py-8 text-center font-semibold text-slate-500" colSpan={5}>
+                    No cash reconciliations saved in this range.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="mt-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5">

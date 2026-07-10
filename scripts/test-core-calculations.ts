@@ -10,6 +10,12 @@ import {
   parseBulkCsvRecords,
   validateBulkRows,
 } from "../src/lib/bulk-entry";
+import {
+  calculateCashReconciliation,
+  expectedTenderTotalsForDate,
+  reconciliationTotals,
+  unreconciledDailySaleDates,
+} from "../src/lib/cash-reconciliation";
 import { aggregateData, posPaymentBreakdown, posSalesBySource, rangesOverlap } from "../src/lib/calculations";
 import {
   emptyMonthlyTotals,
@@ -26,7 +32,7 @@ import {
   mapRowsToPosPreview,
   validatePosPreviewRows,
 } from "../src/lib/pos-import";
-import type { CommandCenterData, DailySale, MonthlyTotal, PosImportRow } from "../src/lib/types";
+import type { CashReconciliation, CommandCenterData, DailySale, MonthlyTotal, PosImportRow } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -126,6 +132,90 @@ const aggregateFixture: CommandCenterData = {
 const aggregate = aggregateData(aggregateFixture, "2026-06-01", "2026-06-30");
 closeTo(aggregate.fuelProfit, 50, "tracked fuel should replace only the matching daily fallback");
 assert.equal(aggregate.payrollCost, 200, "payroll spanning the report range should be included");
+
+const cashMath = calculateCashReconciliation({
+  starting_cash: 500,
+  ending_cash: 1225,
+  expected_cash_sales: 1000,
+  cash_drops: 200,
+  paid_outs: 50,
+  lottery_payouts: 25,
+  pos_card_total: 800,
+  processor_card_total: 798,
+  bank_deposit_amount: 190,
+  status: "needs_review",
+});
+assert.equal(cashMath.expectedEndingCash, 1225, "cash reconciliation should calculate expected ending cash");
+assert.equal(cashMath.variance, 0, "cash reconciliation should calculate cash over/short variance");
+assert.equal(cashMath.cardVariance, -2, "cash reconciliation should calculate card batch mismatch");
+assert.equal(cashMath.depositVariance, -10, "cash reconciliation should calculate deposit mismatch against drops");
+assert.equal(cashMath.isBalanced, false, "card mismatch over threshold should require review");
+
+const cashPosRow: PosImportRow = {
+  id: "pos-cash",
+  user_id: "user",
+  store_id: "store",
+  pos_import_id: "import",
+  pos_key: "square",
+  pos_name: "Square",
+  row_index: 1,
+  row_hash: "hash",
+  transaction_id: "txn",
+  date: "2026-06-02",
+  department_category: "Grocery",
+  item_name: "Basket",
+  sku_barcode: null,
+  quantity_sold: 1,
+  gross_sales: 250,
+  discounts: 0,
+  refunds: 0,
+  voids: 0,
+  net_sales: 250,
+  tax: 0,
+  fees: 0,
+  cash_total: 40,
+  card_total: 200,
+  ebt_total: 10,
+  gift_card_total: 5,
+  other_payment_total: 2,
+  fuel_gallons: 0,
+  fuel_sales: 0,
+  fuel_cost: 0,
+  lottery_sales: 0,
+  vendor_category_notes: null,
+  duplicate_key: "square|2026-06-02|txn",
+  import_action: "import",
+  validation_errors: [],
+  raw_data: {},
+};
+const expectedTender = expectedTenderTotalsForDate("2026-06-02", aggregateFixture.daily_sales, [cashPosRow]);
+assert.equal(expectedTender.expected_cash_sales, 40, "POS cash should override daily-sale cash when available");
+assert.equal(expectedTender.pos_card_total, 200, "POS card should override daily-sale card when available");
+assert.equal(expectedTender.ebt_total, 10, "POS EBT should be included in expected tenders");
+
+const reconciled: CashReconciliation = {
+  id: "recon",
+  user_id: "user",
+  store_id: "store",
+  date: "2026-06-01",
+  starting_cash: 500,
+  ending_cash: 1225,
+  expected_cash_sales: 1000,
+  cash_drops: 200,
+  paid_outs: 50,
+  lottery_payouts: 25,
+  cash_over_short: 0,
+  pos_card_total: 800,
+  processor_card_total: 798,
+  ebt_total: 0,
+  gift_card_total: 0,
+  other_tender_total: 0,
+  bank_deposit_amount: 190,
+  status: "needs_review",
+  notes: null,
+};
+assert.deepEqual(unreconciledDailySaleDates(aggregateFixture.daily_sales, [reconciled]), ["2026-06-02"], "unreconciled days should exclude saved reconciliation dates");
+assert.equal(reconciliationTotals([reconciled]).needsReview, 1, "reconciliation totals should count review items");
 
 const savedMonthlyTotal: MonthlyTotal = {
   ...monthlyTotals,
