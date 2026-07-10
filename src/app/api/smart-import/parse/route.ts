@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import Papa from "papaparse";
+import pdfParse from "pdf-parse";
 import { readSheet } from "read-excel-file/node";
-import { recognize } from "tesseract.js";
 import {
   categorizeImportLine,
   parseDateLike,
@@ -296,9 +296,9 @@ function sunocoManualFallback(
 
   return {
     rawLines: manualDepartmentRows.length ? manualDepartmentRows : manualStoreRows.length ? manualStoreRows : [baseRow],
-    warnings: ["PDF parsing and OCR did not produce a clean report. Use manual review or choose a report type and reprocess with OCR."],
+    warnings: ["PDF text extraction was unavailable or did not find readable text. OCR is temporarily disabled; manual review is required."],
     parser: "pdf-parse" as const,
-    parserAttempted: "PDF text extraction + OCR fallback",
+    parserAttempted: "Server-side PDF text extraction (OCR disabled)",
     parseError,
     rawTextPreview: rawTextPreview(rawText, 12000),
     reportType: reportType === "department_sales" || reportType === "store_sales_summary" ? reportType : undefined,
@@ -344,45 +344,15 @@ function parseSunocoText(
 }
 
 async function extractPdfText(buffer: Buffer) {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const parsed = await parser.getText({
-      cellSeparator: " ",
-      itemJoiner: " ",
-      lineEnforce: true,
-      pageJoiner: "\n",
-    });
-    return parsed.text;
-  } finally {
-    await parser.destroy();
-  }
+  const parsed = await pdfParse(buffer);
+  return parsed.text;
 }
 
-async function ocrPdf(buffer: Buffer) {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const screenshots = await parser.getScreenshot({
-      imageDataUrl: true,
-      imageBuffer: false,
-      scale: 2,
-    });
-    const texts: string[] = [];
-
-    for (const page of screenshots.pages) {
-      if (!page.dataUrl) {
-        continue;
-      }
-
-      const result = await recognize(page.dataUrl, "eng");
-      texts.push(result.data.text);
-    }
-
-    return texts.join("\n");
-  } finally {
-    await parser.destroy();
-  }
+function safePdfError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown PDF text extraction error";
+  return /fake worker|pdf\.worker|workerSrc/i.test(message)
+    ? "PDF text extraction is unavailable in this server environment."
+    : message;
 }
 
 function storeSummaryToRawLines(text: string) {
@@ -478,56 +448,36 @@ async function parsePdf(
     manualReportType?: "department_sales" | "store_sales_summary" | "invoice" | "bank_statement";
   } = {},
 ) {
-  const warnings: string[] = [];
+  if (options.forceOcr) {
+    return sunocoManualFallback(
+      fileName,
+      options.manualReportType,
+      "OCR is temporarily disabled in the Next.js API route. Use manual review for image-only PDFs.",
+      "",
+    );
+  }
+
   let extractedText = "";
-  let textParseError = "";
-
   try {
-    if (!options.forceOcr) {
-      extractedText = await extractPdfText(buffer);
-      const sunocoResult = parseSunocoText(extractedText, {
-        extractionMethod: "pdf-text",
-        manualReportType: options.manualReportType,
-      });
-      if (sunocoResult) {
-        return sunocoResult;
-      }
-    }
+    extractedText = await extractPdfText(buffer);
   } catch (error) {
-    textParseError = error instanceof Error ? error.message : "Unknown PDF text extraction error";
+    return sunocoManualFallback(fileName, options.manualReportType, safePdfError(error), "");
   }
 
-  const shouldTryOcr = options.forceOcr || !isUsefulPdfText(extractedText) || Boolean(textParseError);
-
-  if (shouldTryOcr) {
-    try {
-      const ocrText = await ocrPdf(buffer);
-      const sunocoResult = parseSunocoText(ocrText, {
-        extractionMethod: "ocr",
-        manualReportType: options.manualReportType,
-      });
-      if (sunocoResult) {
-        return {
-          ...sunocoResult,
-          warnings: [
-            ...(textParseError ? [`PDF text extraction failed: ${textParseError}`] : []),
-            ...sunocoResult.warnings,
-          ],
-        };
-      }
-
-      extractedText = extractedText || ocrText;
-      warnings.push("OCR completed, but no Sunoco report structure was detected.");
-    } catch (error) {
-      const ocrError = error instanceof Error ? error.message : "Unknown OCR error";
-      return sunocoManualFallback(
-        fileName,
-        options.manualReportType,
-        [textParseError, ocrError].filter(Boolean).join(" | ") || "PDF text extraction and OCR failed.",
-        extractedText,
-      );
-    }
+  if (!isUsefulPdfText(extractedText)) {
+    return sunocoManualFallback(
+      fileName,
+      options.manualReportType,
+      "The PDF did not contain enough selectable text. OCR or manual review is required.",
+      extractedText,
+    );
   }
+
+  const sunocoResult = parseSunocoText(extractedText, {
+    extractionMethod: "pdf-text",
+    manualReportType: options.manualReportType,
+  });
+  if (sunocoResult) return sunocoResult;
 
   try {
     const lines = extractedText
@@ -539,30 +489,21 @@ async function parsePdf(
       .filter((line): line is RawImportLine => Boolean(line));
 
     if (!rawLines.length) {
-      warnings.push("PDF text extraction did not identify clear line items. Rows may need manual review.");
-      rawLines.push({
-        rowIndex: 1,
-        date: null,
-        vendor: inferVendorFromFileName(fileName),
-        description: extractedText.slice(0, 500) || "Unclear PDF extraction",
-        productName: "",
-        skuUpc: "",
-        quantity: 0,
-        unitCost: 0,
-        unitRetailPrice: 0,
-        total: 0,
-        rawData: { text_preview: extractedText.slice(0, 1000) },
-        columnNames: ["text_preview"],
-      });
+      return sunocoManualFallback(
+        fileName,
+        options.manualReportType,
+        "PDF text extraction did not identify clear line items.",
+        extractedText,
+      );
     }
 
     return {
       rawLines,
-      warnings,
+      warnings: [],
       parser: "pdf-parse" as const,
-      parserAttempted: "Generic PDF parser",
+      parserAttempted: "Server-side PDF text extraction",
       rawTextPreview: rawTextPreview(extractedText),
-      extractionMethod: shouldTryOcr ? ("ocr" as const) : ("pdf-text" as const),
+      extractionMethod: "pdf-text" as const,
       extractedTextLength: extractedText.length,
     };
   } catch (error) {
@@ -634,7 +575,7 @@ async function parseExcel(buffer: Buffer) {
   }
 }
 
-export async function POST(request: Request) {
+async function parseSmartImportRequest(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file");
   const rules = formData.get("rules");
@@ -728,4 +669,16 @@ export async function POST(request: Request) {
   };
 
   return NextResponse.json(result);
+}
+
+export async function POST(request: Request) {
+  try {
+    return await parseSmartImportRequest(request);
+  } catch (error) {
+    console.error("Smart Import parse route failed:", error);
+    return NextResponse.json(
+      { error: "Unable to parse this file. Try CSV/XLSX or use manual review for the source document." },
+      { status: 500 },
+    );
+  }
 }
