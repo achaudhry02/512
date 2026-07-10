@@ -395,6 +395,31 @@ create table if not exists public.fuel_reconciliations (
   unique (user_id, store_id, fuel_grade_id, date)
 );
 
+create table if not exists public.margin_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  category text not null check (category in (
+    'grocery',
+    'candy',
+    'snacks',
+    'drinks',
+    'cigarettes',
+    'vape_nicotine',
+    'beer',
+    'deli',
+    'hot_food',
+    'lottery',
+    'fuel',
+    'other'
+  )),
+  gross_margin_percent numeric(8,3) not null default 0,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, category)
+);
+
 create table if not exists public.lottery_entries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -701,6 +726,7 @@ create index if not exists fuel_grades_user_store_sort_idx on public.fuel_grades
 create index if not exists fuel_deliveries_user_store_date_idx on public.fuel_deliveries(user_id, store_id, date desc);
 create index if not exists fuel_tank_readings_user_store_date_idx on public.fuel_tank_readings(user_id, store_id, date desc);
 create index if not exists fuel_reconciliations_user_store_date_idx on public.fuel_reconciliations(user_id, store_id, date desc);
+create index if not exists margin_settings_user_store_category_idx on public.margin_settings(user_id, store_id, category);
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
 create index if not exists deli_entries_user_store_date_idx on public.deli_entries(user_id, store_id, date desc);
 create index if not exists payroll_entries_user_store_date_idx on public.payroll_entries(user_id, store_id, date_range_start desc);
@@ -793,6 +819,11 @@ create trigger set_fuel_reconciliations_updated_at
 before update on public.fuel_reconciliations
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_margin_settings_updated_at on public.margin_settings;
+create trigger set_margin_settings_updated_at
+before update on public.margin_settings
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_lottery_entries_updated_at on public.lottery_entries;
 create trigger set_lottery_entries_updated_at
 before update on public.lottery_entries
@@ -870,6 +901,7 @@ alter table public.fuel_grades enable row level security;
 alter table public.fuel_deliveries enable row level security;
 alter table public.fuel_tank_readings enable row level security;
 alter table public.fuel_reconciliations enable row level security;
+alter table public.margin_settings enable row level security;
 alter table public.lottery_entries enable row level security;
 alter table public.deli_entries enable row level security;
 alter table public.payroll_entries enable row level security;
@@ -958,6 +990,13 @@ with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can manage their own fuel reconciliations" on public.fuel_reconciliations;
 create policy "Users can manage their own fuel reconciliations" on public.fuel_reconciliations
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own margin settings" on public.margin_settings;
+create policy "Users can manage their own margin settings" on public.margin_settings
 for all
 to authenticated
 using ((select auth.uid()) = user_id)
@@ -1146,6 +1185,7 @@ grant select, insert, update, delete on table public.fuel_grades to authenticate
 grant select, insert, update, delete on table public.fuel_deliveries to authenticated;
 grant select, insert, update, delete on table public.fuel_tank_readings to authenticated;
 grant select, insert, update, delete on table public.fuel_reconciliations to authenticated;
+grant select, insert, update, delete on table public.margin_settings to authenticated;
 
 create table if not exists public.pos_systems (
   id uuid primary key default gen_random_uuid(),

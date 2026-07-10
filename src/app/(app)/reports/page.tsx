@@ -72,6 +72,7 @@ export default function ReportsPage() {
       ["Store", store?.name ?? "Store"],
       ["Date range", `${startDate} to ${endDate}`],
       ["Data source", report.source === "monthly_totals" ? "Monthly totals entries where available" : report.source === "daily_and_pos" ? "Daily and POS import data" : "Daily data"],
+      ["Profit accuracy", report.profitAccuracyLabel],
       [],
       ["Metric", "Amount"],
       ["Total revenue", report.totalRevenue],
@@ -137,6 +138,9 @@ export default function ReportsPage() {
         />
         <span className="rounded-full bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-700 ring-1 ring-cyan-100">
           {report.source === "monthly_totals" ? "Using monthly totals where available" : report.source === "daily_and_pos" ? "Using daily + POS import data" : "Using daily data"}
+        </span>
+        <span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 ring-1 ring-emerald-100">
+          {report.profitAccuracyLabel}
         </span>
       </div>
 

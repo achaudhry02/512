@@ -91,6 +91,22 @@ export type PaymentMethod =
 
 export type UserRole = "owner" | "manager" | "employee" | "accountant";
 
+export type MarginCategory =
+  | "grocery"
+  | "candy"
+  | "snacks"
+  | "drinks"
+  | "cigarettes"
+  | "vape_nicotine"
+  | "beer"
+  | "deli"
+  | "hot_food"
+  | "lottery"
+  | "fuel"
+  | "other";
+
+export type ProfitAccuracy = "actual" | "estimated" | "mixed";
+
 export type UserProfile = {
   id: string;
   email: string;
@@ -346,6 +362,12 @@ export type FuelReconciliation = EntryBase & {
   actual_margin?: number;
   suggested_price?: number;
   is_variance_alert?: boolean;
+};
+
+export type MarginSetting = EntryBase & {
+  category: MarginCategory;
+  gross_margin_percent: number;
+  notes: string | null;
 };
 
 export type LotteryEntry = EntryBase & {
@@ -645,6 +667,7 @@ export type TableName =
   | "fuel_deliveries"
   | "fuel_tank_readings"
   | "fuel_reconciliations"
+  | "margin_settings"
   | "lottery_entries"
   | "deli_entries"
   | "payroll_entries";
@@ -661,6 +684,7 @@ export type TableRowMap = {
   fuel_deliveries: FuelDelivery;
   fuel_tank_readings: FuelTankReading;
   fuel_reconciliations: FuelReconciliation;
+  margin_settings: MarginSetting;
   lottery_entries: LotteryEntry;
   deli_entries: DeliEntry;
   payroll_entries: PayrollEntry;
@@ -682,6 +706,7 @@ export type CommandCenterData = {
   fuel_deliveries: FuelDelivery[];
   fuel_tank_readings: FuelTankReading[];
   fuel_reconciliations: FuelReconciliation[];
+  margin_settings: MarginSetting[];
   lottery_entries: LotteryEntry[];
   deli_entries: DeliEntry[];
   payroll_entries: PayrollEntry[];

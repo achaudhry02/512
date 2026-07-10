@@ -132,6 +132,7 @@ const aggregateFixture: CommandCenterData = {
   fuel_deliveries: [],
   fuel_tank_readings: [],
   fuel_reconciliations: [],
+  margin_settings: [],
   lottery_entries: [], deli_entries: [], expenses: [],
   payroll_entries: [{ id: "pay", user_id: "user", store_id: "store", employee_name: "Test", date_range_start: "2026-05-01", date_range_end: "2026-07-01", hours_worked: 10, hourly_rate: 20, notes: null }],
   pos_systems: [], pos_imports: [], pos_column_mappings: [], pos_import_rows: [],
@@ -141,6 +142,21 @@ const aggregateFixture: CommandCenterData = {
 const aggregate = aggregateData(aggregateFixture, "2026-06-01", "2026-06-30");
 closeTo(aggregate.fuelProfit, 50, "tracked fuel should replace only the matching daily fallback");
 assert.equal(aggregate.payrollCost, 200, "payroll spanning the report range should be included");
+assert.equal(aggregate.profitAccuracy, "estimated", "aggregate should label margin-only profit as estimated");
+
+const marginAggregate = aggregateData({
+  ...aggregateFixture,
+  margin_settings: [
+    { id: "m1", user_id: "user", store_id: "store", category: "grocery", gross_margin_percent: 50, notes: null },
+    { id: "m2", user_id: "user", store_id: "store", category: "beer", gross_margin_percent: 10, notes: null },
+    { id: "m3", user_id: "user", store_id: "store", category: "cigarettes", gross_margin_percent: 10, notes: null },
+    { id: "m4", user_id: "user", store_id: "store", category: "other", gross_margin_percent: 10, notes: null },
+    { id: "m5", user_id: "user", store_id: "store", category: "lottery", gross_margin_percent: 8, notes: null },
+    { id: "m6", user_id: "user", store_id: "store", category: "deli", gross_margin_percent: 60, notes: null },
+    { id: "m7", user_id: "user", store_id: "store", category: "hot_food", gross_margin_percent: 60, notes: null },
+  ],
+}, "2026-06-01", "2026-06-30");
+assert.notEqual(marginAggregate.grossProfit, aggregate.grossProfit, "configured margins should change aggregate gross profit");
 
 const cashMath = calculateCashReconciliation({
   starting_cash: 500,

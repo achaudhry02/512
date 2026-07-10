@@ -43,6 +43,7 @@ const tableNames: TableName[] = [
   "fuel_deliveries",
   "fuel_tank_readings",
   "fuel_reconciliations",
+  "margin_settings",
   "lottery_entries",
   "deli_entries",
   "payroll_entries",
@@ -77,6 +78,7 @@ function orderColumnForTable(table: TableName) {
   if (table === "payroll_entries") return "date_range_start";
   if (table === "monthly_totals") return "year";
   if (table === "fuel_grades") return "sort_order";
+  if (table === "margin_settings") return "category";
   return "date";
 }
 
@@ -90,6 +92,7 @@ const emptyData: CommandCenterData = {
   fuel_deliveries: [],
   fuel_tank_readings: [],
   fuel_reconciliations: [],
+  margin_settings: [],
   lottery_entries: [],
   deli_entries: [],
   payroll_entries: [],

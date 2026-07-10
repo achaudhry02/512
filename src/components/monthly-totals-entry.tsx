@@ -89,13 +89,13 @@ export function MonthlyTotalsEntry() {
       totalExpenses: monthlyTotalExpenses(activeRecord),
       fuelMargin: monthlyFuelMargin(activeRecord),
       fuelProfit: monthlyFuelProfit(activeRecord),
-      grossProfit: monthlyGrossProfit(activeRecord),
-      netProfit: monthlyNetProfit(activeRecord),
+      grossProfit: monthlyGrossProfit(activeRecord, data.margin_settings),
+      netProfit: monthlyNetProfit(activeRecord, data.margin_settings),
       expensePercentage: monthlyExpensePercentage(activeRecord),
-      grossMargin: monthlyGrossMarginPercent(activeRecord),
-      netMargin: monthlyNetMarginPercent(activeRecord),
+      grossMargin: monthlyGrossMarginPercent(activeRecord, data.margin_settings),
+      netMargin: monthlyNetMarginPercent(activeRecord, data.margin_settings),
     }),
-    [activeRecord],
+    [activeRecord, data.margin_settings],
   );
 
   function updateField(field: keyof MonthlyTotalsFormValues, value: string) {

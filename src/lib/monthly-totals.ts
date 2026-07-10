@@ -1,4 +1,6 @@
 import type { MonthlyTotal } from "@/lib/types";
+import { monthlyGrossProfitFromMargins } from "@/lib/margin-settings";
+import type { MarginSetting } from "@/lib/types";
 
 export type MonthlyTotalsFormValues = Omit<
   MonthlyTotal,
@@ -103,15 +105,19 @@ export function monthlyFuelMargin(entry: MonthlyTotalsFormValues | MonthlyTotal)
   return entry.fuel_gallons_sold > 0 ? monthlyFuelProfit(entry) / entry.fuel_gallons_sold : 0;
 }
 
-export function monthlyGrossProfit(entry: MonthlyTotalsFormValues | MonthlyTotal) {
+export function monthlyGrossProfit(entry: MonthlyTotalsFormValues | MonthlyTotal, marginSettings: MarginSetting[] = []) {
+  if (marginSettings.length) {
+    return monthlyGrossProfitFromMargins(entry as MonthlyTotal, marginSettings);
+  }
+
   const foodSales = entry.deli_sales + entry.hot_food_sales;
   const merchandiseSales = entry.grocery_sales + entry.beer_sales + entry.cigarette_sales +
     entry.vape_nicotine_sales + entry.other_sales;
   return monthlyFuelProfit(entry) + entry.lottery_sales * 0.06 + foodSales * 0.55 + merchandiseSales * 0.28;
 }
 
-export function monthlyNetProfit(entry: MonthlyTotalsFormValues | MonthlyTotal) {
-  return monthlyGrossProfit(entry) - monthlyTotalExpenses(entry);
+export function monthlyNetProfit(entry: MonthlyTotalsFormValues | MonthlyTotal, marginSettings: MarginSetting[] = []) {
+  return monthlyGrossProfit(entry, marginSettings) - monthlyTotalExpenses(entry);
 }
 
 export function monthlyExpensePercentage(entry: MonthlyTotalsFormValues | MonthlyTotal) {
@@ -119,14 +125,14 @@ export function monthlyExpensePercentage(entry: MonthlyTotalsFormValues | Monthl
   return totalSales > 0 ? (monthlyTotalExpenses(entry) / totalSales) * 100 : 0;
 }
 
-export function monthlyGrossMarginPercent(entry: MonthlyTotalsFormValues | MonthlyTotal) {
+export function monthlyGrossMarginPercent(entry: MonthlyTotalsFormValues | MonthlyTotal, marginSettings: MarginSetting[] = []) {
   const totalSales = monthlyTotalSales(entry);
-  return totalSales > 0 ? (monthlyGrossProfit(entry) / totalSales) * 100 : 0;
+  return totalSales > 0 ? (monthlyGrossProfit(entry, marginSettings) / totalSales) * 100 : 0;
 }
 
-export function monthlyNetMarginPercent(entry: MonthlyTotalsFormValues | MonthlyTotal) {
+export function monthlyNetMarginPercent(entry: MonthlyTotalsFormValues | MonthlyTotal, marginSettings: MarginSetting[] = []) {
   const totalSales = monthlyTotalSales(entry);
-  return totalSales > 0 ? (monthlyNetProfit(entry) / totalSales) * 100 : 0;
+  return totalSales > 0 ? (monthlyNetProfit(entry, marginSettings) / totalSales) * 100 : 0;
 }
 
 export function monthlyTotalsToCsv(entry: MonthlyTotalsFormValues | MonthlyTotal) {

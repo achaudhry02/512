@@ -4,9 +4,11 @@ import { Plus, Save } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useCommandCenter } from "@/lib/data-provider";
+import { defaultMarginSettings, marginCategoryLabel } from "@/lib/margin-settings";
+import type { MarginCategory } from "@/lib/types";
 
 export default function SettingsPage() {
-  const { createStore, profile, selectStore, store, stores, updateProfile, updateStore } = useCommandCenter();
+  const { createStore, data, profile, saveEntry, selectStore, store, stores, updateProfile, updateStore } = useCommandCenter();
   const [fullName, setFullName] = useState("");
   const [storeForm, setStoreForm] = useState({
     name: "",
@@ -18,6 +20,10 @@ export default function SettingsPage() {
   const [newStoreName, setNewStoreName] = useState("");
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [savingMargins, setSavingMargins] = useState(false);
+  const [margins, setMargins] = useState<Record<MarginCategory, number>>(() =>
+    Object.fromEntries(defaultMarginSettings.map((entry) => [entry.category, entry.gross_margin_percent])) as Record<MarginCategory, number>,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +37,17 @@ export default function SettingsPage() {
       zip: store?.zip ?? "",
     });
   }, [profile, store]);
+
+  useEffect(() => {
+    setMargins(
+      Object.fromEntries(
+        defaultMarginSettings.map((defaultSetting) => {
+          const saved = data.margin_settings.find((entry) => entry.category === defaultSetting.category);
+          return [defaultSetting.category, saved?.gross_margin_percent ?? defaultSetting.gross_margin_percent];
+        }),
+      ) as Record<MarginCategory, number>,
+    );
+  }, [data.margin_settings]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,6 +87,34 @@ export default function SettingsPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  async function handleSaveMargins() {
+    setSavingMargins(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      for (const defaultSetting of defaultMarginSettings) {
+        const existing = data.margin_settings.find((entry) => entry.category === defaultSetting.category);
+        await saveEntry("margin_settings", {
+          category: defaultSetting.category,
+          gross_margin_percent: margins[defaultSetting.category],
+          notes: existing?.notes ?? defaultSetting.notes,
+        }, existing?.id);
+      }
+      setMessage("Margin settings saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save margin settings.");
+    } finally {
+      setSavingMargins(false);
+    }
+  }
+
+  function resetMarginDefaults() {
+    setMargins(
+      Object.fromEntries(defaultMarginSettings.map((entry) => [entry.category, entry.gross_margin_percent])) as Record<MarginCategory, number>,
+    );
   }
 
   return (
@@ -228,6 +273,56 @@ export default function SettingsPage() {
           </div>
         </aside>
       </div>
+
+      <section className="mt-6 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
+          <h3 className="text-xl font-black text-slate-950">Margin settings</h3>
+          <p className="mt-1 text-sm font-medium text-slate-500">
+            Configure gross margin assumptions used by dashboard, reports, Profit Leak Finder, and monthly totals when product-level cost is not available.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:p-6">
+          {defaultMarginSettings.map((setting) => (
+            <label className="block" key={setting.category}>
+              <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{marginCategoryLabel(setting.category)}</span>
+              <div className="mt-2 flex items-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80 focus-within:border-cyan-400 focus-within:ring-4 focus-within:ring-cyan-100">
+                <input
+                  className="w-full bg-transparent px-4 py-3 text-sm font-semibold outline-none"
+                  min="-100"
+                  onChange={(event) =>
+                    setMargins((current) => ({
+                      ...current,
+                      [setting.category]: Number(event.target.value) || 0,
+                    }))
+                  }
+                  step="0.01"
+                  type="number"
+                  value={margins[setting.category]}
+                />
+                <span className="border-l border-slate-200 px-3 text-sm font-black text-slate-500">%</span>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-5 sm:flex-row sm:px-6">
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-cyan-600/20 transition hover:-translate-y-0.5 hover:bg-cyan-700 disabled:opacity-60"
+            disabled={savingMargins}
+            onClick={() => void handleSaveMargins()}
+            type="button"
+          >
+            <Save className="h-4 w-4" />
+            {savingMargins ? "Saving..." : "Save margin settings"}
+          </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm"
+            onClick={resetMarginDefaults}
+            type="button"
+          >
+            Reset defaults
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

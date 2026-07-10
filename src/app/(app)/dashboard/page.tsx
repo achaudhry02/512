@@ -40,6 +40,7 @@ import {
   unreconciledDailySaleDates,
 } from "@/lib/cash-reconciliation";
 import { fuelReconciliationTotals } from "@/lib/fuel-reconciliation";
+import { marginRate } from "@/lib/margin-settings";
 import {
   aggregateData,
   analyzeProfitLeaks,
@@ -110,7 +111,7 @@ export default function DashboardPage() {
       date: monthlyPeriodKey(entry),
       inside: monthlyInsideSales(entry),
       fuelProfit: monthlyFuelProfit(entry),
-      lotteryProfit: entry.lottery_sales * 0.06,
+      lotteryProfit: entry.lottery_sales * marginRate(data.margin_settings, "lottery"),
       deli: entry.deli_sales + entry.hot_food_sales,
       expenses: monthlyTotalExpenses(entry),
     }));
@@ -188,6 +189,9 @@ export default function DashboardPage() {
               </div>
               <p className="text-xs font-semibold text-slate-400">
                 {activeSummary.profitMargin.toFixed(1)}% estimated profit margin
+              </p>
+              <p className="text-xs font-black text-cyan-100">
+                {activeSummary.profitAccuracyLabel}
               </p>
             </div>
           </div>
@@ -290,7 +294,7 @@ export default function DashboardPage() {
           helper={view === "monthly" ? "Fuel, lottery, food, and estimated inside margin this month" : "Fuel, lottery, deli, and estimated inside margin today"}
           icon={TrendingUp}
           label="Gross profit"
-          trend={view === "monthly" ? "Month" : "Today"}
+          trend={activeSummary.profitAccuracy}
           value={activeSummary.grossProfit}
         />
         <StatCard

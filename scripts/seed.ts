@@ -219,6 +219,21 @@ async function main() {
     { name: "Alex Owner", role: "Owner/Admin", hourly_rate: 0, phone: null, email: seedEmail, active: true, notes: null },
   ].map((employee) => ({ ...employee, user_id: userId, store_id: storeId }));
 
+  const marginSettings = [
+    { category: "grocery", gross_margin_percent: 28, notes: "Demo grocery margin" },
+    { category: "candy", gross_margin_percent: 32, notes: "Demo candy margin" },
+    { category: "snacks", gross_margin_percent: 32, notes: "Demo snack margin" },
+    { category: "drinks", gross_margin_percent: 35, notes: "Demo drink margin" },
+    { category: "cigarettes", gross_margin_percent: 18, notes: "Demo cigarette margin" },
+    { category: "vape_nicotine", gross_margin_percent: 35, notes: "Demo vape/nicotine margin" },
+    { category: "beer", gross_margin_percent: 24, notes: "Demo beer margin" },
+    { category: "deli", gross_margin_percent: 55, notes: "Demo deli margin" },
+    { category: "hot_food", gross_margin_percent: 55, notes: "Demo hot food margin" },
+    { category: "lottery", gross_margin_percent: 6, notes: "Demo lottery commission" },
+    { category: "fuel", gross_margin_percent: 0, notes: "Fuel uses price minus cost" },
+    { category: "other", gross_margin_percent: 28, notes: "Demo other sales margin" },
+  ].map((setting) => ({ ...setting, user_id: userId, store_id: storeId }));
+
   const { error: salesError } = await supabase.from("daily_sales").insert(dailySales);
   if (salesError) throw salesError;
 
@@ -243,7 +258,10 @@ async function main() {
   const { error: employeeError } = await supabase.from("employees").insert(employees);
   if (employeeError) throw employeeError;
 
-  console.log(`Seeded ${seedStoreName} with sales, monthly totals, expenses, fuel, payroll, inventory, vendors, and employees.`);
+  const { error: marginError } = await supabase.from("margin_settings").upsert(marginSettings, { onConflict: "user_id,store_id,category" });
+  if (marginError) throw marginError;
+
+  console.log(`Seeded ${seedStoreName} with sales, monthly totals, expenses, fuel, payroll, inventory, vendors, employees, and margin settings.`);
 }
 
 main().catch((error) => {

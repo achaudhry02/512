@@ -41,6 +41,7 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - POS column mapping templates, duplicate handling, import history, payment breakdowns, department sales, fuel gallons/sales, tax/fees, discounts, refunds, voids, and unmapped/error reports
 - Cash Reconciliation for drawer cash, drops, paid-outs, lottery payouts, POS/card batch matching, bank deposits, over/short alerts, and unreconciled-day reporting
 - Fuel Reconciliation for grade setup, deliveries, tank readings, sold gallons from POS/manual data, book-vs-actual inventory, variance alerts, rack cost, target margin, and suggested pricing
+- Configurable margin settings for grocery, candy, snacks, drinks, cigarettes, vape/nicotine, beer, deli, hot food, lottery, fuel, and other categories
 - Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
 - Product Sales Breakdown, Vendor Spend, and Category Profit reports
 - Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
@@ -154,6 +155,18 @@ The page supports:
 
 Saving a reconciliation also stores matching delivery and tank reading records. Dashboard and Reports show fuel variance alerts, total gallon variance, and low-margin grade counts.
 
+### Margin settings
+
+Open `Settings` and use the `Margin settings` section to configure gross margin percentages by category. Dashboard, Reports, Profit Leak Finder, and Monthly Totals use product-level gross profit when available, then configured category margins, then default fallback margins.
+
+Reports label profit quality as:
+
+- `Actual from product cost`
+- `Estimated from category margins`
+- `Mixed actual + estimated`
+
+Existing generated columns in Supabase remain as backward-compatible estimates, but app calculations use the configurable margin path.
+
 ### Bulk Entry schema notes
 
 `supabase/schema.sql` adds these monthly-entry columns to `daily_sales`:
@@ -221,6 +234,7 @@ The schema creates:
 - `fuel_deliveries`
 - `fuel_tank_readings`
 - `fuel_reconciliations`
+- `margin_settings`
 - `lottery_entries`
 - `deli_entries`
 - `payroll_entries`
