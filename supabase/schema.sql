@@ -792,6 +792,7 @@ create index if not exists product_rules_user_store_sku_idx on public.product_ru
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -1144,6 +1145,7 @@ drop policy if exists "Users can delete their own products" on public.products;
 create policy "Users can delete their own products" on public.products
 for delete using (user_id = auth.uid());
 
+drop policy if exists "Users can manage their own employees" on public.employees;
 drop policy if exists "Users can select their own employees" on public.employees;
 create policy "Users can select their own employees" on public.employees
 for select using (user_id = auth.uid());
@@ -1171,6 +1173,7 @@ drop policy if exists "Users can delete their own product sales" on public.produ
 create policy "Users can delete their own product sales" on public.product_sales
 for delete using (user_id = auth.uid());
 
+drop policy if exists "Users can manage their own department sales" on public.department_sales;
 drop policy if exists "Users can select their own department sales" on public.department_sales;
 create policy "Users can select their own department sales" on public.department_sales
 for select using (user_id = auth.uid());
@@ -1184,6 +1187,7 @@ drop policy if exists "Users can delete their own department sales" on public.de
 create policy "Users can delete their own department sales" on public.department_sales
 for delete using (user_id = auth.uid());
 
+drop policy if exists "Users can manage their own store sales summaries" on public.store_sales_summaries;
 drop policy if exists "Users can select their own store sales summaries" on public.store_sales_summaries;
 create policy "Users can select their own store sales summaries" on public.store_sales_summaries
 for select using (user_id = auth.uid());
@@ -1197,6 +1201,7 @@ drop policy if exists "Users can delete their own store sales summaries" on publ
 create policy "Users can delete their own store sales summaries" on public.store_sales_summaries
 for delete using (user_id = auth.uid());
 
+drop policy if exists "Users can manage their own fuel grade sales" on public.fuel_grade_sales;
 drop policy if exists "Users can select their own fuel grade sales" on public.fuel_grade_sales;
 create policy "Users can select their own fuel grade sales" on public.fuel_grade_sales
 for select using (user_id = auth.uid());
@@ -1210,6 +1215,7 @@ drop policy if exists "Users can delete their own fuel grade sales" on public.fu
 create policy "Users can delete their own fuel grade sales" on public.fuel_grade_sales
 for delete using (user_id = auth.uid());
 
+drop policy if exists "Users can manage their own tender sales" on public.tender_sales;
 drop policy if exists "Users can select their own tender sales" on public.tender_sales;
 create policy "Users can select their own tender sales" on public.tender_sales
 for select using (user_id = auth.uid());
@@ -1419,3 +1425,402 @@ grant select, insert, update, delete on table public.pos_systems to authenticate
 grant select, insert, update, delete on table public.pos_imports to authenticated;
 grant select, insert, update, delete on table public.pos_column_mappings to authenticated;
 grant select, insert, update, delete on table public.pos_import_rows to authenticated;
+
+-- Phase 7: inventory operations
+alter table public.products add column if not exists menu_export_enabled boolean not null default false;
+alter table public.products add column if not exists menu_name text;
+alter table public.products add column if not exists menu_description text;
+alter table public.products add column if not exists menu_category text;
+
+create table if not exists public.purchase_orders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  vendor_id uuid not null references public.vendors(id) on delete restrict,
+  po_number text not null,
+  status text not null default 'draft'
+    check (status in ('draft', 'ordered', 'partially_received', 'received', 'cancelled')),
+  order_date date not null default current_date,
+  expected_date date,
+  total_cost numeric(12,2) not null default 0,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, po_number)
+);
+
+create table if not exists public.purchase_order_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  purchase_order_id uuid not null references public.purchase_orders(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete restrict,
+  product_name text not null,
+  sku_upc text,
+  ordered_quantity numeric(12,3) not null default 0 check (ordered_quantity > 0),
+  received_quantity numeric(12,3) not null default 0 check (received_quantity >= 0),
+  unit_cost numeric(12,4) not null default 0 check (unit_cost >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (purchase_order_id, product_id)
+);
+
+create table if not exists public.inventory_adjustments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete restrict,
+  purchase_order_id uuid references public.purchase_orders(id) on delete set null,
+  adjustment_date date not null default current_date,
+  adjustment_type text not null
+    check (adjustment_type in ('receipt', 'sale', 'sale_reversal', 'shrink', 'loss', 'damage', 'count', 'return', 'correction')),
+  quantity_delta numeric(12,3) not null check (quantity_delta <> 0),
+  unit_cost numeric(12,4),
+  reason text,
+  notes text,
+  source_type text,
+  source_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.price_history (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete cascade,
+  changed_at timestamptz not null default now(),
+  old_unit_cost numeric(12,4) not null default 0,
+  new_unit_cost numeric(12,4) not null default 0,
+  old_retail_price numeric(12,4) not null default 0,
+  new_retail_price numeric(12,4) not null default 0,
+  change_reason text,
+  source text not null default 'product_update',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.vendor_item_costs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  vendor_id uuid not null references public.vendors(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete cascade,
+  purchase_order_id uuid references public.purchase_orders(id) on delete set null,
+  purchase_order_item_id uuid unique references public.purchase_order_items(id) on delete set null,
+  effective_date date not null default current_date,
+  unit_cost numeric(12,4) not null check (unit_cost >= 0),
+  source text not null default 'purchase_order',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists purchase_orders_user_store_date_idx
+  on public.purchase_orders(user_id, store_id, order_date desc);
+create index if not exists purchase_orders_store_idx on public.purchase_orders(store_id);
+create index if not exists purchase_orders_vendor_idx on public.purchase_orders(vendor_id);
+create index if not exists purchase_order_items_order_idx
+  on public.purchase_order_items(purchase_order_id);
+create index if not exists purchase_order_items_user_idx on public.purchase_order_items(user_id);
+create index if not exists purchase_order_items_store_idx on public.purchase_order_items(store_id);
+create index if not exists purchase_order_items_product_idx on public.purchase_order_items(product_id);
+create index if not exists inventory_adjustments_product_date_idx
+  on public.inventory_adjustments(user_id, store_id, product_id, adjustment_date desc);
+create index if not exists inventory_adjustments_product_idx on public.inventory_adjustments(product_id);
+create index if not exists inventory_adjustments_store_idx on public.inventory_adjustments(store_id);
+create index if not exists inventory_adjustments_order_idx on public.inventory_adjustments(purchase_order_id);
+create unique index if not exists inventory_adjustments_source_idx
+  on public.inventory_adjustments(user_id, store_id, source_type, source_id, adjustment_type)
+  where source_id is not null;
+create index if not exists price_history_product_date_idx
+  on public.price_history(user_id, store_id, product_id, changed_at desc);
+create index if not exists price_history_product_idx on public.price_history(product_id);
+create index if not exists price_history_store_idx on public.price_history(store_id);
+create index if not exists vendor_item_costs_product_date_idx
+  on public.vendor_item_costs(user_id, store_id, product_id, vendor_id, effective_date desc);
+create index if not exists vendor_item_costs_vendor_idx on public.vendor_item_costs(vendor_id);
+create index if not exists vendor_item_costs_product_idx on public.vendor_item_costs(product_id);
+create index if not exists vendor_item_costs_store_idx on public.vendor_item_costs(store_id);
+create index if not exists vendor_item_costs_order_idx on public.vendor_item_costs(purchase_order_id);
+
+drop trigger if exists set_purchase_orders_updated_at on public.purchase_orders;
+create trigger set_purchase_orders_updated_at
+before update on public.purchase_orders
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_purchase_order_items_updated_at on public.purchase_order_items;
+create trigger set_purchase_order_items_updated_at
+before update on public.purchase_order_items
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_inventory_adjustments_updated_at on public.inventory_adjustments;
+create trigger set_inventory_adjustments_updated_at
+before update on public.inventory_adjustments
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_price_history_updated_at on public.price_history;
+create trigger set_price_history_updated_at
+before update on public.price_history
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_vendor_item_costs_updated_at on public.vendor_item_costs;
+create trigger set_vendor_item_costs_updated_at
+before update on public.vendor_item_costs
+for each row execute function public.set_updated_at();
+
+create or replace function public.apply_inventory_adjustment()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  update public.products
+  set quantity_on_hand = quantity_on_hand + new.quantity_delta,
+      unit_cost = case
+        when new.adjustment_type = 'receipt' and coalesce(new.unit_cost, 0) > 0 then new.unit_cost
+        else unit_cost
+      end
+  where id = new.product_id
+    and user_id = new.user_id
+    and store_id = new.store_id;
+
+  if not found then
+    raise exception 'Inventory product is missing or inaccessible.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists apply_inventory_adjustment_after_insert on public.inventory_adjustments;
+create trigger apply_inventory_adjustment_after_insert
+after insert on public.inventory_adjustments
+for each row execute function public.apply_inventory_adjustment();
+
+create or replace function public.capture_product_price_history()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if old.unit_cost is distinct from new.unit_cost
+     or old.unit_retail_price is distinct from new.unit_retail_price then
+    insert into public.price_history (
+      user_id, store_id, product_id, old_unit_cost, new_unit_cost,
+      old_retail_price, new_retail_price, change_reason, source
+    ) values (
+      new.user_id, new.store_id, new.id, old.unit_cost, new.unit_cost,
+      old.unit_retail_price, new.unit_retail_price, 'Product cost or retail price changed', 'product_update'
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists capture_product_price_history_after_update on public.products;
+create trigger capture_product_price_history_after_update
+after update of unit_cost, unit_retail_price on public.products
+for each row execute function public.capture_product_price_history();
+
+create or replace function public.sync_product_sale_inventory()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' and new.product_id is not null and new.quantity_sold <> 0 then
+    insert into public.inventory_adjustments (
+      user_id, store_id, product_id, adjustment_date, adjustment_type,
+      quantity_delta, unit_cost, reason, source_type, source_id
+    ) values (
+      new.user_id, new.store_id, new.product_id, new.date, 'sale',
+      -abs(new.quantity_sold), new.unit_cost, 'Automatic deduction from product sale', 'product_sale', new.id
+    ) on conflict do nothing;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' and old.product_id is not null and old.quantity_sold <> 0 then
+    insert into public.inventory_adjustments (
+      user_id, store_id, product_id, adjustment_date, adjustment_type,
+      quantity_delta, unit_cost, reason, source_type, source_id
+    ) values (
+      old.user_id, old.store_id, old.product_id, old.date, 'sale_reversal',
+      abs(old.quantity_sold), old.unit_cost, 'Product sale removed or import rolled back', 'product_sale', old.id
+    ) on conflict do nothing;
+    return old;
+  end if;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists sync_product_sale_inventory_after_insert_delete on public.product_sales;
+create trigger sync_product_sale_inventory_after_insert_delete
+after insert or delete on public.product_sales
+for each row execute function public.sync_product_sale_inventory();
+
+create or replace function public.record_inventory_adjustment(
+  p_product_id uuid,
+  p_adjustment_type text,
+  p_quantity_delta numeric,
+  p_unit_cost numeric default null,
+  p_reason text default null,
+  p_notes text default null,
+  p_adjustment_date date default current_date
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  product_row public.products%rowtype;
+  adjustment_id uuid;
+begin
+  if p_quantity_delta = 0 then
+    raise exception 'Adjustment quantity cannot be zero.';
+  end if;
+  if p_adjustment_type not in ('receipt', 'shrink', 'loss', 'damage', 'count', 'return', 'correction') then
+    raise exception 'Unsupported manual adjustment type.';
+  end if;
+
+  select * into product_row
+  from public.products
+  where id = p_product_id and user_id = (select auth.uid());
+
+  if product_row.id is null then
+    raise exception 'Inventory product was not found.';
+  end if;
+
+  insert into public.inventory_adjustments (
+    user_id, store_id, product_id, adjustment_date, adjustment_type,
+    quantity_delta, unit_cost, reason, notes, source_type
+  ) values (
+    product_row.user_id, product_row.store_id, product_row.id, coalesce(p_adjustment_date, current_date),
+    p_adjustment_type, p_quantity_delta, p_unit_cost, p_reason, p_notes, 'manual'
+  ) returning id into adjustment_id;
+
+  return adjustment_id;
+end;
+$$;
+
+create or replace function public.receive_purchase_order(p_purchase_order_id uuid)
+returns integer
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  order_row public.purchase_orders%rowtype;
+  item_row public.purchase_order_items%rowtype;
+  quantity_to_receive numeric;
+  received_lines integer := 0;
+begin
+  select * into order_row
+  from public.purchase_orders
+  where id = p_purchase_order_id and user_id = (select auth.uid())
+  for update;
+
+  if order_row.id is null then
+    raise exception 'Purchase order was not found.';
+  end if;
+  if order_row.status in ('received', 'cancelled') then
+    raise exception 'Purchase order cannot be received in its current status.';
+  end if;
+
+  for item_row in
+    select * from public.purchase_order_items
+    where purchase_order_id = order_row.id
+      and received_quantity < ordered_quantity
+    for update
+  loop
+    quantity_to_receive := item_row.ordered_quantity - item_row.received_quantity;
+
+    insert into public.inventory_adjustments (
+      user_id, store_id, product_id, purchase_order_id, adjustment_date,
+      adjustment_type, quantity_delta, unit_cost, reason, source_type, source_id
+    ) values (
+      order_row.user_id, order_row.store_id, item_row.product_id, order_row.id, current_date,
+      'receipt', quantity_to_receive, item_row.unit_cost, 'Purchase order receipt', 'purchase_order_item', item_row.id
+    ) on conflict do nothing;
+
+    update public.purchase_order_items
+    set received_quantity = ordered_quantity
+    where id = item_row.id;
+
+    insert into public.vendor_item_costs (
+      user_id, store_id, vendor_id, product_id, purchase_order_id,
+      purchase_order_item_id, effective_date, unit_cost, source
+    ) values (
+      order_row.user_id, order_row.store_id, order_row.vendor_id, item_row.product_id,
+      order_row.id, item_row.id, current_date, item_row.unit_cost, 'purchase_order'
+    ) on conflict (purchase_order_item_id) do update
+      set unit_cost = excluded.unit_cost,
+          effective_date = excluded.effective_date;
+
+    received_lines := received_lines + 1;
+  end loop;
+
+  if received_lines = 0 then
+    raise exception 'Purchase order has no outstanding items.';
+  end if;
+
+  update public.purchase_orders
+  set status = 'received'
+  where id = order_row.id;
+
+  return received_lines;
+end;
+$$;
+
+alter table public.purchase_orders enable row level security;
+alter table public.purchase_order_items enable row level security;
+alter table public.inventory_adjustments enable row level security;
+alter table public.price_history enable row level security;
+alter table public.vendor_item_costs enable row level security;
+
+drop policy if exists "Users can manage their own purchase orders" on public.purchase_orders;
+create policy "Users can manage their own purchase orders" on public.purchase_orders
+for all to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own purchase order items" on public.purchase_order_items;
+create policy "Users can manage their own purchase order items" on public.purchase_order_items
+for all to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own inventory adjustments" on public.inventory_adjustments;
+create policy "Users can manage their own inventory adjustments" on public.inventory_adjustments
+for all to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can view their own price history" on public.price_history;
+create policy "Users can view their own price history" on public.price_history
+for select to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert their own price history" on public.price_history;
+create policy "Users can insert their own price history" on public.price_history
+for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own vendor item costs" on public.vendor_item_costs;
+create policy "Users can manage their own vendor item costs" on public.vendor_item_costs
+for all to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+grant select, insert, update, delete on table public.purchase_orders to authenticated;
+grant select, insert, update, delete on table public.purchase_order_items to authenticated;
+grant select, insert, update, delete on table public.inventory_adjustments to authenticated;
+grant select, insert on table public.price_history to authenticated;
+grant select, insert, update, delete on table public.vendor_item_costs to authenticated;
+revoke all on function public.record_inventory_adjustment(uuid, text, numeric, numeric, text, text, date) from public;
+revoke all on function public.receive_purchase_order(uuid) from public;
+grant execute on function public.record_inventory_adjustment(uuid, text, numeric, numeric, text, text, date) to authenticated;
+grant execute on function public.receive_purchase_order(uuid) to authenticated;

@@ -27,6 +27,7 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
   - Deli / hot food tracking
   - Payroll
 - Inventory CRUD with SKU/barcode search, category filters, margin, quantity, reorder levels, and low-stock alerts
+- Inventory Operations with scanner-friendly lookup, purchase orders, receiving, stock adjustments, reorder suggestions, dead stock, fast movers, vendor cost alerts, price history, shrink/loss, and delivery-menu CSV export
 - Vendor CRUD with contacts, products supplied, average weekly spend, and recorded spend
 - Employee roster with roles, standard hourly rates, contact details, and active status
 - Weekly and monthly payroll summaries with a $2,500 weekly planning benchmark
@@ -247,6 +248,11 @@ The schema creates:
 - `import_rows`
 - `products`
 - `product_sales`
+- `purchase_orders`
+- `purchase_order_items`
+- `inventory_adjustments`
+- `price_history`
+- `vendor_item_costs`
 - `vendors`
 - `product_categories`
 - `category_rules`
@@ -256,6 +262,21 @@ The schema creates:
 `products` stores quantity on hand, reorder level, cost, retail price, and notes. `vendors` stores supplier contacts and weekly spend estimates. `employees` stores the staff roster and standard rates; payroll history remains in `payroll_entries`.
 
 All store-owned tables include `user_id` and `store_id`, plus row-level security policies using `auth.uid() = user_id`.
+
+## Inventory Operations
+
+Open `Inventory` and use the four modes:
+
+- `Catalog`: scan or type a barcode, maintain product cost/price/stock, and select products for menu export.
+- `Purchase orders`: create a vendor order with one or more existing products, then receive all outstanding lines into inventory.
+- `Adjustments`: record receipts, shrink, loss, damage, returns, physical counts, and corrections with an audit trail.
+- `Insights`: review reorder suggestions, 60-day dead stock, 30-day fast movers, high-margin products, vendor cost increases, and price changes.
+
+Receiving a purchase order updates quantity on hand, current product cost, vendor item cost history, and price history. Product sales linked to a product automatically reduce quantity on hand; deleting or rolling back that product sale restores the quantity through a reversal adjustment.
+
+The menu export includes only products with `Include in menu export` enabled and writes an Excel-compatible CSV with name, description, category, barcode, price, availability, and active status. It is suitable as a starting import file for DoorDash or another delivery menu, but marketplace-specific required columns may still need to be mapped in that marketplace's merchant portal.
+
+After pulling Phase 7, re-run `supabase/schema.sql` in the Supabase SQL editor before opening the app. This adds the inventory operation tables, product menu fields, indexes, RLS policies, audit triggers, and the receiving/adjustment database functions.
 
 ## Smart Import
 

@@ -485,7 +485,78 @@ export type Product = EntryBase & {
   unit_retail_price: number;
   quantity_on_hand: number;
   reorder_level: number;
+  menu_export_enabled: boolean;
+  menu_name: string | null;
+  menu_description: string | null;
+  menu_category: string | null;
   notes: string | null;
+};
+
+export type PurchaseOrderStatus = "draft" | "ordered" | "partially_received" | "received" | "cancelled";
+
+export type PurchaseOrder = EntryBase & {
+  vendor_id: string;
+  po_number: string;
+  status: PurchaseOrderStatus;
+  order_date: string;
+  expected_date: string | null;
+  total_cost: number;
+  notes: string | null;
+};
+
+export type PurchaseOrderItem = EntryBase & {
+  purchase_order_id: string;
+  product_id: string;
+  product_name: string;
+  sku_upc: string | null;
+  ordered_quantity: number;
+  received_quantity: number;
+  unit_cost: number;
+};
+
+export type InventoryAdjustmentType =
+  | "receipt"
+  | "sale"
+  | "sale_reversal"
+  | "shrink"
+  | "loss"
+  | "damage"
+  | "count"
+  | "return"
+  | "correction";
+
+export type InventoryAdjustment = EntryBase & {
+  product_id: string;
+  purchase_order_id: string | null;
+  adjustment_date: string;
+  adjustment_type: InventoryAdjustmentType;
+  quantity_delta: number;
+  unit_cost: number | null;
+  reason: string | null;
+  notes: string | null;
+  source_type: string | null;
+  source_id: string | null;
+};
+
+export type PriceHistory = EntryBase & {
+  product_id: string;
+  changed_at: string;
+  old_unit_cost: number;
+  new_unit_cost: number;
+  old_retail_price: number;
+  new_retail_price: number;
+  change_reason: string | null;
+  source: string;
+};
+
+export type VendorItemCost = EntryBase & {
+  vendor_id: string;
+  product_id: string;
+  purchase_order_id: string | null;
+  purchase_order_item_id: string | null;
+  effective_date: string;
+  unit_cost: number;
+  source: string;
 };
 
 export type Employee = EntryBase & {
@@ -756,6 +827,11 @@ export type CommandCenterData = {
   employees: Employee[];
   product_categories: ProductCategory[];
   products: Product[];
+  purchase_orders: PurchaseOrder[];
+  purchase_order_items: PurchaseOrderItem[];
+  inventory_adjustments: InventoryAdjustment[];
+  price_history: PriceHistory[];
+  vendor_item_costs: VendorItemCost[];
   product_sales: ProductSale[];
   department_sales: DepartmentSale[];
   store_sales_summaries: StoreSalesSummary[];

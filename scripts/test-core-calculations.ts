@@ -32,12 +32,13 @@ import {
   monthlyTotalExpenses,
   monthlyTotalSales,
 } from "../src/lib/monthly-totals";
+import { buildMenuExportCsv, inventoryInsights, productMarginPercent } from "../src/lib/inventory-operations";
 import {
   defaultPosMappings,
   mapRowsToPosPreview,
   validatePosPreviewRows,
 } from "../src/lib/pos-import";
-import type { CashReconciliation, CommandCenterData, DailySale, FuelReconciliation, MonthlyTotal, PosImportRow } from "../src/lib/types";
+import type { CashReconciliation, CommandCenterData, DailySale, FuelReconciliation, MonthlyTotal, PosImportRow, Product } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -138,6 +139,7 @@ const aggregateFixture: CommandCenterData = {
   cash_flow_entries: [],
   pos_systems: [], pos_imports: [], pos_column_mappings: [], pos_import_rows: [],
   imports: [], import_rows: [], vendors: [], employees: [], product_categories: [], products: [], product_sales: [],
+  purchase_orders: [], purchase_order_items: [], inventory_adjustments: [], price_history: [], vendor_item_costs: [],
   department_sales: [], store_sales_summaries: [], fuel_grade_sales: [], tender_sales: [], category_rules: [], vendor_rules: [], product_rules: [],
 };
 const aggregate = aggregateData(aggregateFixture, "2026-06-01", "2026-06-30");
@@ -158,6 +160,37 @@ const marginAggregate = aggregateData({
   ],
 }, "2026-06-01", "2026-06-30");
 assert.notEqual(marginAggregate.grossProfit, aggregate.grossProfit, "configured margins should change aggregate gross profit");
+
+const inventoryProduct = (overrides: Partial<Product> = {}): Product => ({
+  id: "product-1", user_id: "user", store_id: "store", product_category_id: null, vendor_id: "vendor-1",
+  name: "Bottled Water", sku_upc: "012345", category: "Drinks", unit_cost: 1, unit_retail_price: 2,
+  quantity_on_hand: 2, reorder_level: 5, menu_export_enabled: true, menu_name: "Cold Bottled Water",
+  menu_description: "20 oz bottle", menu_category: "Drinks", notes: null,
+  ...overrides,
+});
+const inventoryProducts = [
+  inventoryProduct(),
+  inventoryProduct({ id: "product-2", name: "Slow Chips", sku_upc: "099999", quantity_on_hand: 10, reorder_level: 2, menu_export_enabled: false }),
+];
+const inventoryReport = inventoryInsights(
+  inventoryProducts,
+  [{ id: "sale-1", user_id: "user", store_id: "store", import_id: null, import_row_id: null, product_id: "product-1", vendor_id: "vendor-1", date: "2026-06-29", product_name: "Bottled Water", sku_upc: "012345", quantity_sold: 30, unit_cost: 1, unit_retail_price: 2, gross_sales: 60, gross_profit: 30, margin_percent: 50, category: "Drinks", vendor: "Vendor" }],
+  [{ id: "adjustment-1", user_id: "user", store_id: "store", product_id: "product-1", purchase_order_id: null, adjustment_date: "2026-06-20", adjustment_type: "shrink", quantity_delta: -2, unit_cost: 1, reason: "Broken", notes: null, source_type: "manual", source_id: null }],
+  [
+    { id: "cost-1", user_id: "user", store_id: "store", vendor_id: "vendor-1", product_id: "product-1", purchase_order_id: null, purchase_order_item_id: null, effective_date: "2026-05-01", unit_cost: 0.8, source: "purchase_order" },
+    { id: "cost-2", user_id: "user", store_id: "store", vendor_id: "vendor-1", product_id: "product-1", purchase_order_id: null, purchase_order_item_id: null, effective_date: "2026-06-01", unit_cost: 1, source: "purchase_order" },
+  ],
+  "2026-06-30",
+);
+assert.equal(productMarginPercent(inventoryProducts[0]), 50, "product margin should use retail revenue as the denominator");
+assert.equal(inventoryReport.reorderSuggestions[0].suggestedQuantity, 12, "reorder suggestion should cover two weeks of recent demand");
+assert.equal(inventoryReport.fastMovers[0].quantitySold30, 30, "fast movers should aggregate linked 30-day product sales");
+assert.equal(inventoryReport.deadStock[0].product.id, "product-2", "products without recent sales should be dead stock");
+assert.equal(inventoryReport.shrinkLoss.cost, 2, "shrink/loss should be valued at item cost");
+closeTo(inventoryReport.costIncreases[0].increasePercent, 25, "vendor cost increases should compare the two latest costs");
+const menuCsv = buildMenuExportCsv(inventoryProducts);
+assert.ok(menuCsv.includes("Cold Bottled Water"), "menu export should include selected products");
+assert.ok(!menuCsv.includes("Slow Chips"), "menu export should exclude unselected products");
 
 const cashMath = calculateCashReconciliation({
   starting_cash: 500,

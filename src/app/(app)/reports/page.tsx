@@ -27,6 +27,7 @@ import {
   sum,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
+import { inventoryInsights } from "@/lib/inventory-operations";
 import { expenseCategories } from "@/lib/types";
 
 function csvEscape(value: string | number) {
@@ -45,6 +46,13 @@ export default function ReportsPage() {
   );
   const expenseMap = report.expenseBreakdown ?? expensesByCategory(report.expenses);
   const inventoryValue = data.products.reduce((total, product) => total + product.quantity_on_hand * product.unit_cost, 0);
+  const inventoryReport = inventoryInsights(
+    data.products,
+    data.product_sales,
+    data.inventory_adjustments,
+    data.vendor_item_costs,
+    endDate || new Date(),
+  );
   const vendorSpend = Object.entries(report.expenses.reduce<Record<string, number>>((vendors, expense) => {
     vendors[expense.vendor_name] = (vendors[expense.vendor_name] ?? 0) + expense.amount;
     return vendors;
@@ -96,6 +104,10 @@ export default function ReportsPage() {
       ["Payroll", report.payrollCost],
       ["Net profit", report.netProfit],
       ["Inventory value", inventoryValue],
+      ["Low-stock products", inventoryReport.lowStock.length],
+      ["Dead-stock value", inventoryReport.deadStock.reduce((total, entry) => total + entry.tiedUpValue, 0)],
+      ["Shrink/loss units", inventoryReport.shrinkLoss.units],
+      ["Shrink/loss cost", inventoryReport.shrinkLoss.cost],
       ["POS fuel gallons", posFuelGallons],
       ["POS fuel sales", posFuelSales],
       ["Cash flow deposits", cashFlow.operatingInflows],
@@ -116,6 +128,12 @@ export default function ReportsPage() {
       [],
       ["Smart Import status", "Count"],
       ...importStatusRows.map((row) => [row.name, row.value]),
+      [],
+      ["Inventory reorder suggestions", "Suggested quantity", "Estimated cost"],
+      ...inventoryReport.reorderSuggestions.map((entry) => [entry.productName, entry.suggestedQuantity, entry.estimatedCost]),
+      [],
+      ["Vendor cost increases", "Previous cost", "Current cost", "Increase percent"],
+      ...inventoryReport.costIncreases.map((entry) => [entry.productName, entry.previousCost, entry.currentCost, entry.increasePercent]),
     ];
 
     const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -177,6 +195,9 @@ export default function ReportsPage() {
         <StatCard label="Payroll" value={report.payrollCost} accent="rose" />
         <StatCard label="Net profit" value={report.netProfit} accent={report.netProfit >= 0 ? "emerald" : "rose"} />
         <StatCard label="Inventory value" value={inventoryValue} accent="slate" />
+        <StatCard label="Low-stock products" value={inventoryReport.lowStock.length} accent={inventoryReport.lowStock.length ? "rose" : "emerald"} />
+        <StatCard label="Dead-stock value" value={inventoryReport.deadStock.reduce((total, entry) => total + entry.tiedUpValue, 0)} accent={inventoryReport.deadStock.length ? "amber" : "emerald"} />
+        <StatCard label="Shrink / loss" value={inventoryReport.shrinkLoss.cost} accent={inventoryReport.shrinkLoss.cost ? "rose" : "emerald"} />
         <StatCard label="Cash over/short" value={cashOverShort} accent={Math.abs(cashOverShort) > 5 ? "rose" : "emerald"} />
         <StatCard label="Unreconciled days" value={unreconciledDays} accent={unreconciledDays ? "amber" : "emerald"} />
         <StatCard label="Card mismatch" value={cardMismatch} accent={Math.abs(cardMismatch) > 5 ? "rose" : "emerald"} />
@@ -354,6 +375,23 @@ export default function ReportsPage() {
           </div>
         </section>
       </div>
+
+      <section className="mt-8 rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+        <h3 className="text-xl font-black text-slate-950">Inventory operations</h3>
+        <p className="mt-1 text-sm text-slate-500">Reorder needs, fast movers, dead stock, margin leaders, vendor cost increases, and shrink/loss.</p>
+        <div className="mt-5 grid gap-6 xl:grid-cols-2">
+          <div className="overflow-x-auto">
+            <h4 className="mb-2 text-sm font-black uppercase text-slate-500">Reorder suggestions</h4>
+            <table className="min-w-full text-sm"><thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><tr><th className="py-3">Product</th><th className="py-3 text-right">On hand</th><th className="py-3 text-right">Suggested</th></tr></thead><tbody className="divide-y divide-slate-100">{inventoryReport.reorderSuggestions.slice(0, 10).map((entry) => <tr key={entry.productId}><td className="py-3 font-bold text-slate-800">{entry.productName}</td><td className="py-3 text-right text-red-700">{entry.quantityOnHand}</td><td className="py-3 text-right font-black">{entry.suggestedQuantity}</td></tr>)}</tbody></table>
+            {!inventoryReport.reorderSuggestions.length ? <p className="py-6 text-center text-sm text-slate-500">No products need reordering.</p> : null}
+          </div>
+          <div className="overflow-x-auto">
+            <h4 className="mb-2 text-sm font-black uppercase text-slate-500">Fast movers</h4>
+            <table className="min-w-full text-sm"><thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><tr><th className="py-3">Product</th><th className="py-3 text-right">Units / 30d</th><th className="py-3 text-right">Sales</th></tr></thead><tbody className="divide-y divide-slate-100">{inventoryReport.fastMovers.slice(0, 10).map((entry) => <tr key={entry.product.id}><td className="py-3 font-bold text-slate-800">{entry.product.name}</td><td className="py-3 text-right">{entry.quantitySold30}</td><td className="py-3 text-right font-black">{currency(entry.revenue30)}</td></tr>)}</tbody></table>
+            {!inventoryReport.fastMovers.length ? <p className="py-6 text-center text-sm text-slate-500">No linked product sales in the last 30 days.</p> : null}
+          </div>
+        </div>
+      </section>
 
       <div className="mt-8 grid gap-6 xl:grid-cols-2">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">

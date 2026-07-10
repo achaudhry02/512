@@ -18,6 +18,7 @@ import type {
   CommandCenterData,
   ImportRecord,
   ImportRow,
+  InventoryAdjustmentType,
   MonthlyTotal,
   ParsedImportResult,
   ParsedImportRow,
@@ -74,6 +75,14 @@ const posImportTableNames = [
   "pos_import_rows",
 ] as const;
 
+const inventoryOperationTableNames = [
+  "purchase_orders",
+  "purchase_order_items",
+  "inventory_adjustments",
+  "price_history",
+  "vendor_item_costs",
+] as const;
+
 const resourceTableNames: ResourceTableName[] = ["products", "vendors", "employees"];
 
 function orderColumnForTable(table: TableName) {
@@ -109,6 +118,11 @@ const emptyData: CommandCenterData = {
   employees: [],
   product_categories: [],
   products: [],
+  purchase_orders: [],
+  purchase_order_items: [],
+  inventory_adjustments: [],
+  price_history: [],
+  vendor_item_costs: [],
   product_sales: [],
   department_sales: [],
   store_sales_summaries: [],
@@ -180,6 +194,23 @@ type CommandCenterContextValue = {
   updateStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
   createStore: (payload: Partial<Omit<Store, "id" | "user_id">>) => Promise<void>;
   selectStore: (storeId: string) => Promise<void>;
+  createPurchaseOrder: (payload: {
+    vendorId: string;
+    expectedDate: string | null;
+    notes: string | null;
+    items: { productId: string; quantity: number; unitCost: number }[];
+  }) => Promise<void>;
+  receivePurchaseOrder: (id: string) => Promise<void>;
+  cancelPurchaseOrder: (id: string) => Promise<void>;
+  saveInventoryAdjustment: (payload: {
+    productId: string;
+    adjustmentType: InventoryAdjustmentType;
+    quantityDelta: number;
+    unitCost?: number | null;
+    reason?: string | null;
+    notes?: string | null;
+    adjustmentDate?: string;
+  }) => Promise<void>;
 };
 
 const CommandCenterContext = createContext<CommandCenterContextValue | undefined>(undefined);
@@ -190,6 +221,20 @@ function normalizedVendor(name: string) {
 
 function normalizeRole(role: unknown): UserRole {
   return role === "manager" || role === "employee" || role === "accountant" ? role : "owner";
+}
+
+function isUnavailableOptionalTable(error: { code?: string; message?: string }) {
+  return error.code === "42P01"
+    || error.code === "PGRST205"
+    || error.message?.includes("Could not find the table") === true;
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return fallback;
 }
 
 function rowDate(row: ParsedImportRow) {
@@ -492,6 +537,40 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           nextData[table] = rows as never;
         }
 
+        const inventoryOperationResults = await Promise.all(
+          inventoryOperationTableNames.map(async (table) => {
+            const orderColumn =
+              table === "purchase_orders"
+                ? "order_date"
+                : table === "purchase_order_items"
+                  ? "created_at"
+                  : table === "inventory_adjustments"
+                    ? "adjustment_date"
+                    : table === "price_history"
+                      ? "changed_at"
+                      : "effective_date";
+            const { data: rows, error: tableError } = await supabase
+              .from(table)
+              .select("*")
+              .eq("user_id", activeUser.id)
+              .eq("store_id", activeStore.id)
+              .order(orderColumn, { ascending: false });
+
+            if (tableError) {
+              if (isUnavailableOptionalTable(tableError)) {
+                console.info(`[inventory] ${table} is unavailable until the Phase 7 schema is applied.`);
+                return [table, []] as const;
+              }
+              throw tableError;
+            }
+            return [table, rows ?? []] as const;
+          }),
+        );
+
+        for (const [table, rows] of inventoryOperationResults) {
+          nextData[table] = rows as never;
+        }
+
         const resourceResults = await Promise.all(
           resourceTableNames
             .filter((table) => table === "employees")
@@ -533,7 +612,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         role: "owner",
         selected_store_id: null,
       });
-      setError(loadError instanceof Error ? loadError.message : "Unable to load store data.");
+      setError(errorMessage(loadError, "Unable to load store data."));
     } finally {
       setLoading(false);
     }
@@ -851,6 +930,160 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       if (deleteError) {
         setError(deleteError.message);
         throw deleteError;
+      }
+      await refresh();
+    },
+    [refresh, user],
+  );
+
+  const createPurchaseOrder = useCallback(
+    async ({
+      expectedDate,
+      items,
+      notes,
+      vendorId,
+    }: {
+      vendorId: string;
+      expectedDate: string | null;
+      notes: string | null;
+      items: { productId: string; quantity: number; unitCost: number }[];
+    }) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user || !store) {
+        throw new Error("You must be signed in before creating a purchase order.");
+      }
+      if (!data.vendors.some((vendor) => vendor.id === vendorId)) {
+        throw new Error("Select a valid vendor.");
+      }
+      if (!items.length) throw new Error("Add at least one item to the purchase order.");
+      if (new Set(items.map((item) => item.productId)).size !== items.length) {
+        throw new Error("Each product can appear only once on a purchase order.");
+      }
+      if (items.some((item) => item.quantity <= 0 || item.unitCost < 0)) {
+        throw new Error("Purchase order quantities must be positive and costs cannot be negative.");
+      }
+
+      const now = new Date();
+      const poNumber = `PO-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${now.getTime().toString().slice(-6)}`;
+      const totalCost = items.reduce((total, item) => total + item.quantity * item.unitCost, 0);
+      const { data: order, error: orderError } = await supabase
+        .from("purchase_orders")
+        .insert({
+          user_id: user.id,
+          store_id: store.id,
+          vendor_id: vendorId,
+          po_number: poNumber,
+          status: "ordered",
+          order_date: now.toISOString().slice(0, 10),
+          expected_date: expectedDate,
+          total_cost: totalCost,
+          notes,
+        })
+        .select("id")
+        .single();
+
+      if (orderError || !order?.id) {
+        const failure = orderError ?? new Error("Purchase order was not created.");
+        setError(failure.message);
+        throw failure;
+      }
+
+      const itemRows = items.map((item) => {
+        const product = data.products.find((candidate) => candidate.id === item.productId);
+        if (!product) throw new Error("A selected inventory product no longer exists.");
+        return {
+          user_id: user.id,
+          store_id: store.id,
+          purchase_order_id: order.id,
+          product_id: product.id,
+          product_name: product.name,
+          sku_upc: product.sku_upc,
+          ordered_quantity: item.quantity,
+          received_quantity: 0,
+          unit_cost: item.unitCost,
+        };
+      });
+      const { error: itemError } = await supabase.from("purchase_order_items").insert(itemRows);
+      if (itemError) {
+        await supabase.from("purchase_orders").delete().eq("id", order.id).eq("user_id", user.id);
+        setError(itemError.message);
+        throw itemError;
+      }
+      await refresh();
+    },
+    [data.products, data.vendors, refresh, store, user],
+  );
+
+  const receivePurchaseOrder = useCallback(
+    async (id: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) throw new Error("You must be signed in before receiving inventory.");
+      const { error: receiveError } = await supabase.rpc("receive_purchase_order", {
+        p_purchase_order_id: id,
+      });
+      if (receiveError) {
+        setError(receiveError.message);
+        throw receiveError;
+      }
+      await refresh();
+    },
+    [refresh, user],
+  );
+
+  const cancelPurchaseOrder = useCallback(
+    async (id: string) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) throw new Error("You must be signed in before cancelling a purchase order.");
+      const { error: cancelError } = await supabase
+        .from("purchase_orders")
+        .update({ status: "cancelled" })
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .in("status", ["draft", "ordered", "partially_received"]);
+      if (cancelError) {
+        setError(cancelError.message);
+        throw cancelError;
+      }
+      await refresh();
+    },
+    [refresh, user],
+  );
+
+  const saveInventoryAdjustment = useCallback(
+    async ({
+      adjustmentDate,
+      adjustmentType,
+      notes,
+      productId,
+      quantityDelta,
+      reason,
+      unitCost,
+    }: {
+      productId: string;
+      adjustmentType: InventoryAdjustmentType;
+      quantityDelta: number;
+      unitCost?: number | null;
+      reason?: string | null;
+      notes?: string | null;
+      adjustmentDate?: string;
+    }) => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || !user) throw new Error("You must be signed in before adjusting inventory.");
+      if (!Number.isFinite(quantityDelta) || quantityDelta === 0) {
+        throw new Error("Adjustment quantity cannot be zero.");
+      }
+      const { error: adjustmentError } = await supabase.rpc("record_inventory_adjustment", {
+        p_product_id: productId,
+        p_adjustment_type: adjustmentType,
+        p_quantity_delta: quantityDelta,
+        p_unit_cost: unitCost ?? null,
+        p_reason: reason ?? null,
+        p_notes: notes ?? null,
+        p_adjustment_date: adjustmentDate ?? new Date().toISOString().slice(0, 10),
+      });
+      if (adjustmentError) {
+        setError(adjustmentError.message);
+        throw adjustmentError;
       }
       await refresh();
     },
@@ -1940,9 +2173,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       updateStore,
       createStore,
       selectStore,
+      createPurchaseOrder,
+      receivePurchaseOrder,
+      cancelPurchaseOrder,
+      saveInventoryAdjustment,
     }),
     [
+      cancelPurchaseOrder,
       createStore,
+      createPurchaseOrder,
       data,
       deleteEntry,
       deleteMonthlyTotal,
@@ -1952,10 +2191,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       loading,
       profile,
       refresh,
+      receivePurchaseOrder,
       saveEntry,
       saveMonthlyTotal,
       saveResource,
       saveBulkMonthlyEntries,
+      saveInventoryAdjustment,
       saveSmartImport,
       rollbackSmartImport,
       savePosColumnMapping,

@@ -207,10 +207,10 @@ async function main() {
   ];
 
   const products = [
-    { name: "Bottled Water 20 oz", sku_upc: "1001001001", category: "Drinks", unit_cost: 0.42, unit_retail_price: 1.49, quantity_on_hand: 36, reorder_level: 12, notes: null },
-    { name: "Salted Chips 2 oz", sku_upc: "1001001002", category: "Snacks", unit_cost: 0.68, unit_retail_price: 1.89, quantity_on_hand: 8, reorder_level: 12, notes: "Reorder on next delivery." },
-    { name: "Breakfast Sandwich", sku_upc: "1001001003", category: "Hot food", unit_cost: 1.45, unit_retail_price: 4.99, quantity_on_hand: 14, reorder_level: 8, notes: "Prepared daily." },
-    { name: "Household Paper Towels", sku_upc: "1001001004", category: "Household", unit_cost: 2.1, unit_retail_price: 4.79, quantity_on_hand: 3, reorder_level: 5, notes: null },
+    { name: "Bottled Water 20 oz", sku_upc: "1001001001", category: "Drinks", unit_cost: 0.42, unit_retail_price: 1.49, quantity_on_hand: 36, reorder_level: 12, menu_export_enabled: true, menu_name: "Cold Bottled Water", menu_description: "20 oz bottled water", menu_category: "Cold Drinks", notes: null },
+    { name: "Salted Chips 2 oz", sku_upc: "1001001002", category: "Snacks", unit_cost: 0.68, unit_retail_price: 1.89, quantity_on_hand: 8, reorder_level: 12, menu_export_enabled: true, menu_name: "Salted Chips", menu_description: "2 oz bag", menu_category: "Snacks", notes: "Reorder on next delivery." },
+    { name: "Breakfast Sandwich", sku_upc: "1001001003", category: "Hot food", unit_cost: 1.45, unit_retail_price: 4.99, quantity_on_hand: 14, reorder_level: 8, menu_export_enabled: true, menu_name: "Breakfast Sandwich", menu_description: "Hot breakfast sandwich", menu_category: "Hot Food", notes: "Prepared daily." },
+    { name: "Household Paper Towels", sku_upc: "1001001004", category: "Household", unit_cost: 2.1, unit_retail_price: 4.79, quantity_on_hand: 3, reorder_level: 5, menu_export_enabled: false, menu_name: null, menu_description: null, menu_category: null, notes: null },
   ].map((product) => ({ ...product, user_id: userId, store_id: storeId }));
 
   const employees = [
@@ -255,13 +255,63 @@ async function main() {
   const { error: productError } = await supabase.from("products").insert(products);
   if (productError) throw productError;
 
+  const [{ data: capitalCandy }, { data: inventoryProducts }] = await Promise.all([
+    supabase.from("vendors").select("id").eq("user_id", userId).eq("store_id", storeId).eq("normalized_name", "capital candy").single(),
+    supabase.from("products").select("id,name,sku_upc,unit_cost").eq("user_id", userId).eq("store_id", storeId).in("sku_upc", ["1001001001", "1001001002", "1001001004"]),
+  ]);
+  const orderProducts = (inventoryProducts ?? []).filter((product) => product.sku_upc !== "1001001004");
+  if (capitalCandy?.id && orderProducts.length) {
+    const { data: purchaseOrder, error: purchaseOrderError } = await supabase.from("purchase_orders").insert({
+      user_id: userId,
+      store_id: storeId,
+      vendor_id: capitalCandy.id,
+      po_number: `DEMO-PO-${isoDate(0).replaceAll("-", "")}`,
+      status: "ordered",
+      order_date: isoDate(0),
+      expected_date: isoDate(-3),
+      total_cost: orderProducts.reduce((total, product) => total + Number(product.unit_cost) * 24, 0),
+      notes: "Demo reorder generated from low-stock suggestions.",
+    }).select("id").single();
+    if (purchaseOrderError) throw purchaseOrderError;
+
+    const { error: purchaseItemsError } = await supabase.from("purchase_order_items").insert(orderProducts.map((product) => ({
+      user_id: userId,
+      store_id: storeId,
+      purchase_order_id: purchaseOrder.id,
+      product_id: product.id,
+      product_name: product.name,
+      sku_upc: product.sku_upc,
+      ordered_quantity: 24,
+      received_quantity: 0,
+      unit_cost: product.unit_cost,
+    })));
+    if (purchaseItemsError) throw purchaseItemsError;
+  }
+
+  const paperTowels = (inventoryProducts ?? []).find((product) => product.sku_upc === "1001001004");
+  if (paperTowels) {
+    const { error: adjustmentError } = await supabase.from("inventory_adjustments").insert({
+      user_id: userId,
+      store_id: storeId,
+      product_id: paperTowels.id,
+      adjustment_date: isoDate(1),
+      adjustment_type: "damage",
+      quantity_delta: -1,
+      unit_cost: paperTowels.unit_cost,
+      reason: "Damaged packaging",
+      notes: "Seeded shrink/loss example.",
+      source_type: "seed",
+    });
+    if (adjustmentError) throw adjustmentError;
+  }
+
   const { error: employeeError } = await supabase.from("employees").insert(employees);
   if (employeeError) throw employeeError;
 
   const { error: marginError } = await supabase.from("margin_settings").upsert(marginSettings, { onConflict: "user_id,store_id,category" });
   if (marginError) throw marginError;
 
-  console.log(`Seeded ${seedStoreName} with sales, monthly totals, expenses, fuel, payroll, inventory, vendors, employees, and margin settings.`);
+  console.log(`Seeded ${seedStoreName} with sales, expenses, inventory operations, purchase orders, vendors, employees, and margin settings.`);
 }
 
 main().catch((error) => {
