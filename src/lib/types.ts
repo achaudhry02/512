@@ -298,6 +298,56 @@ export type FuelEntry = EntryBase & {
   notes: string | null;
 };
 
+export type FuelGrade = EntryBase & {
+  name: string;
+  code: string;
+  sort_order: number;
+  active: boolean;
+  target_margin: number;
+  variance_threshold_gallons: number;
+  notes: string | null;
+};
+
+export type FuelDelivery = EntryBase & {
+  date: string;
+  fuel_grade_id: string;
+  grade_name: string;
+  delivered_gallons: number;
+  rack_cost_per_gallon: number;
+  invoice_number: string | null;
+  vendor_name: string | null;
+  notes: string | null;
+};
+
+export type FuelTankReading = EntryBase & {
+  date: string;
+  fuel_grade_id: string;
+  grade_name: string;
+  reading_type: "beginning" | "ending";
+  gallons: number;
+  notes: string | null;
+};
+
+export type FuelReconciliation = EntryBase & {
+  date: string;
+  fuel_grade_id: string;
+  grade_name: string;
+  beginning_gallons: number;
+  delivered_gallons: number;
+  sold_gallons: number;
+  ending_gallons: number;
+  actual_inventory: number;
+  rack_cost_per_gallon: number;
+  retail_price_per_gallon: number;
+  target_margin: number;
+  notes: string | null;
+  book_inventory?: number;
+  variance?: number;
+  actual_margin?: number;
+  suggested_price?: number;
+  is_variance_alert?: boolean;
+};
+
 export type LotteryEntry = EntryBase & {
   date: string;
   lottery_sales: number;
@@ -591,6 +641,10 @@ export type TableName =
   | "cash_reconciliations"
   | "expenses"
   | "fuel_entries"
+  | "fuel_grades"
+  | "fuel_deliveries"
+  | "fuel_tank_readings"
+  | "fuel_reconciliations"
   | "lottery_entries"
   | "deli_entries"
   | "payroll_entries";
@@ -603,6 +657,10 @@ export type TableRowMap = {
   cash_reconciliations: CashReconciliation;
   expenses: Expense;
   fuel_entries: FuelEntry;
+  fuel_grades: FuelGrade;
+  fuel_deliveries: FuelDelivery;
+  fuel_tank_readings: FuelTankReading;
+  fuel_reconciliations: FuelReconciliation;
   lottery_entries: LotteryEntry;
   deli_entries: DeliEntry;
   payroll_entries: PayrollEntry;
@@ -620,6 +678,10 @@ export type CommandCenterData = {
   cash_reconciliations: CashReconciliation[];
   expenses: Expense[];
   fuel_entries: FuelEntry[];
+  fuel_grades: FuelGrade[];
+  fuel_deliveries: FuelDelivery[];
+  fuel_tank_readings: FuelTankReading[];
+  fuel_reconciliations: FuelReconciliation[];
   lottery_entries: LotteryEntry[];
   deli_entries: DeliEntry[];
   payroll_entries: PayrollEntry[];

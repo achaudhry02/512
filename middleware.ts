@@ -12,6 +12,7 @@ const protectedPrefixes = [
   "/smart-import",
   "/pos-integrations",
   "/fuel",
+  "/fuel-reconciliation",
   "/lottery",
   "/deli",
   "/payroll",

@@ -10,6 +10,10 @@ import {
   unreconciledDailySaleDates,
 } from "@/lib/cash-reconciliation";
 import {
+  calculateFuelReconciliation,
+  fuelReconciliationTotals,
+} from "@/lib/fuel-reconciliation";
+import {
   aggregateData,
   currency,
   expensesByCategory,
@@ -59,6 +63,8 @@ export default function ReportsPage() {
   const reconciliationSummary = reconciliationTotals(reconciliationsInRange);
   const cashOverShort = reconciliationSummary.cashOverShort;
   const cardMismatch = reconciliationSummary.cardMismatch;
+  const fuelReconciliationsInRange = data.fuel_reconciliations.filter((entry) => entry.date >= startDate && entry.date <= endDate);
+  const fuelReconciliationSummary = fuelReconciliationTotals(fuelReconciliationsInRange);
 
   function exportCsv() {
     const rows: (string | number)[][] = [
@@ -146,6 +152,8 @@ export default function ReportsPage() {
         <StatCard label="Cash over/short" value={cashOverShort} accent={Math.abs(cashOverShort) > 5 ? "rose" : "emerald"} />
         <StatCard label="Unreconciled days" value={unreconciledDays} accent={unreconciledDays ? "amber" : "emerald"} />
         <StatCard label="Card mismatch" value={cardMismatch} accent={Math.abs(cardMismatch) > 5 ? "rose" : "emerald"} />
+        <StatCard label="Fuel variance alerts" value={fuelReconciliationSummary.alertCount} accent={fuelReconciliationSummary.alertCount ? "rose" : "emerald"} />
+        <StatCard label="Fuel variance gallons" value={fuelReconciliationSummary.totalVariance} accent={Math.abs(fuelReconciliationSummary.totalVariance) > 25 ? "rose" : "slate"} />
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>
@@ -201,6 +209,50 @@ export default function ReportsPage() {
                 <tr>
                   <td className="px-5 py-8 text-center font-semibold text-slate-500" colSpan={5}>
                     No cash reconciliations saved in this range.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-8 overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-card">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-5">
+          <h3 className="text-xl font-black text-slate-950">Fuel reconciliation by grade</h3>
+          <p className="mt-1 text-sm font-medium text-slate-500">Tank variance, rack cost, retail price, actual margin, and suggested price for the report range.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-950 text-left text-xs uppercase tracking-[0.12em] text-slate-300">
+              <tr>
+                <th className="px-5 py-4 font-black">Date</th>
+                <th className="px-5 py-4 font-black">Grade</th>
+                <th className="px-5 py-4 text-right font-black">Sold gal</th>
+                <th className="px-5 py-4 text-right font-black">Variance</th>
+                <th className="px-5 py-4 text-right font-black">Margin</th>
+                <th className="px-5 py-4 text-right font-black">Suggested price</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {fuelReconciliationsInRange.map((entry) => {
+                const math = calculateFuelReconciliation(entry);
+
+                return (
+                  <tr className="transition hover:bg-cyan-50/40" key={entry.id}>
+                    <td className="px-5 py-4 font-semibold text-slate-700">{entry.date}</td>
+                    <td className="px-5 py-4 font-bold text-slate-800">{entry.grade_name}</td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{entry.sold_gallons.toLocaleString()}</td>
+                    <td className={`px-5 py-4 text-right font-black ${(entry.is_variance_alert ?? math.isVarianceAlert) ? "text-rose-700" : "text-slate-700"}`}>{(entry.variance ?? math.variance).toLocaleString()}</td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{currency(entry.actual_margin ?? math.actualMargin)}</td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-700">{currency(entry.suggested_price ?? math.suggestedPrice)}</td>
+                  </tr>
+                );
+              })}
+              {!fuelReconciliationsInRange.length ? (
+                <tr>
+                  <td className="px-5 py-8 text-center font-semibold text-slate-500" colSpan={6}>
+                    No fuel reconciliations saved in this range.
                   </td>
                 </tr>
               ) : null}

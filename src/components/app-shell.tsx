@@ -45,6 +45,7 @@ const navItems = [
   { href: "/smart-import", label: "Smart Import", icon: ScanLine },
   { href: "/pos-integrations", label: "POS Integrations", icon: PlugZap },
   { href: "/fuel", label: "Fuel Tracking", icon: Fuel },
+  { href: "/fuel-reconciliation", label: "Fuel Reconciliation", icon: Fuel },
   { href: "/lottery", label: "Lottery", icon: Ticket },
   { href: "/deli", label: "Deli / Hot Food", icon: Beef },
   { href: "/payroll", label: "Payroll", icon: Users },

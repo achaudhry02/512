@@ -40,6 +40,7 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 - POS Integrations for flexible CSV imports from Gilbarco Passport, Verifone Commander, NCR Counterpoint, Square, Clover, Lightspeed, Shopify POS, Toast, Shift4, Heartland, CStoreOffice / Petrosoft, PDI, and NCR / Radiant
 - POS column mapping templates, duplicate handling, import history, payment breakdowns, department sales, fuel gallons/sales, tax/fees, discounts, refunds, voids, and unmapped/error reports
 - Cash Reconciliation for drawer cash, drops, paid-outs, lottery payouts, POS/card batch matching, bank deposits, over/short alerts, and unreconciled-day reporting
+- Fuel Reconciliation for grade setup, deliveries, tank readings, sold gallons from POS/manual data, book-vs-actual inventory, variance alerts, rack cost, target margin, and suggested pricing
 - Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
 - Product Sales Breakdown, Vendor Spend, and Category Profit reports
 - Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
@@ -138,6 +139,21 @@ Open `Cash Reconciliation` from the sidebar to save one reconciliation per store
 
 Use `Pull expected totals` to pull cash/card/tender values from saved Daily Sales and POS imports for the selected date. The page calculates expected ending cash, cash variance, card batch mismatch, and balanced/needs-review status. Dashboard and Reports show unreconciled days, cash over/short, and card mismatch totals.
 
+### Fuel reconciliation
+
+Open `Fuel Reconciliation` from the sidebar.
+
+The page supports:
+
+- Regular, Midgrade, Premium, Diesel, and custom fuel grades
+- daily beginning and ending tank readings by grade
+- delivery gallons and rack cost by grade
+- sold gallons pulled from POS imports first, then manual Fuel Tracking entries
+- book inventory, actual inventory, variance, and variance alerts
+- retail price, target margin, actual margin, and suggested price
+
+Saving a reconciliation also stores matching delivery and tank reading records. Dashboard and Reports show fuel variance alerts, total gallon variance, and low-margin grade counts.
+
 ### Bulk Entry schema notes
 
 `supabase/schema.sql` adds these monthly-entry columns to `daily_sales`:
@@ -201,6 +217,10 @@ The schema creates:
 - `cash_reconciliations`
 - `expenses`
 - `fuel_entries`
+- `fuel_grades`
+- `fuel_deliveries`
+- `fuel_tank_readings`
+- `fuel_reconciliations`
 - `lottery_entries`
 - `deli_entries`
 - `payroll_entries`

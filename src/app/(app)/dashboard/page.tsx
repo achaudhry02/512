@@ -39,6 +39,7 @@ import {
   reconciliationTotals,
   unreconciledDailySaleDates,
 } from "@/lib/cash-reconciliation";
+import { fuelReconciliationTotals } from "@/lib/fuel-reconciliation";
 import {
   aggregateData,
   analyzeProfitLeaks,
@@ -48,6 +49,7 @@ import {
   expensesByCategory,
   monthEndIso,
   monthStartIso,
+  numberFormatter,
   todayIso,
 } from "@/lib/calculations";
 import { useCommandCenter } from "@/lib/data-provider";
@@ -117,6 +119,7 @@ export default function DashboardPage() {
   const todaySale = data.daily_sales.find((sale) => sale.date === today);
   const unreconciledDates = unreconciledDailySaleDates(data.daily_sales, data.cash_reconciliations);
   const cashReconciliationTotals = reconciliationTotals(data.cash_reconciliations);
+  const fuelTotals = fuelReconciliationTotals(data.fuel_reconciliations);
   const lowStock = data.products.filter((product) => product.quantity_on_hand <= product.reorder_level);
   const bestSellingItems = Object.values(data.product_sales.reduce<Record<string, { name: string; quantity: number; sales: number }>>((items, sale) => {
     const current = items[sale.product_name] ?? { name: sale.product_name, quantity: 0, sales: 0 };
@@ -353,6 +356,22 @@ export default function DashboardPage() {
           label="Cash over/short"
           trend="Variance"
           value={cashReconciliationTotals.cashOverShort}
+        />
+        <StatCard
+          accent={fuelTotals.alertCount ? "rose" : "emerald"}
+          helper={`${numberFormatter.format(fuelTotals.totalVariance)} total gallons variance`}
+          icon={Fuel}
+          label="Fuel variance alerts"
+          trend="Tanks"
+          value={fuelTotals.alertCount}
+        />
+        <StatCard
+          accent={fuelTotals.lowMarginCount ? "amber" : "emerald"}
+          helper="Grades below target margin"
+          icon={Target}
+          label="Low fuel margins"
+          trend="Pricing"
+          value={fuelTotals.lowMarginCount}
         />
       </div>
 

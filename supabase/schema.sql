@@ -318,6 +318,83 @@ create table if not exists public.fuel_entries (
   total_fuel_profit numeric generated always as (gallons_sold * (retail_price_per_gallon - cost_per_gallon)) stored
 );
 
+create table if not exists public.fuel_grades (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  name text not null,
+  code text not null,
+  sort_order integer not null default 0,
+  active boolean not null default true,
+  target_margin numeric(8,3) not null default 0.20,
+  variance_threshold_gallons numeric(12,3) not null default 25,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, code)
+);
+
+create table if not exists public.fuel_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  fuel_grade_id uuid not null references public.fuel_grades(id) on delete cascade,
+  grade_name text not null,
+  date date not null,
+  delivered_gallons numeric(12,3) not null default 0,
+  rack_cost_per_gallon numeric(8,3) not null default 0,
+  invoice_number text,
+  vendor_name text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.fuel_tank_readings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  fuel_grade_id uuid not null references public.fuel_grades(id) on delete cascade,
+  grade_name text not null,
+  date date not null,
+  reading_type text not null default 'ending' check (reading_type in ('beginning', 'ending')),
+  gallons numeric(12,3) not null default 0,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, store_id, fuel_grade_id, date, reading_type)
+);
+
+create table if not exists public.fuel_reconciliations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  fuel_grade_id uuid not null references public.fuel_grades(id) on delete cascade,
+  grade_name text not null,
+  date date not null,
+  beginning_gallons numeric(12,3) not null default 0,
+  delivered_gallons numeric(12,3) not null default 0,
+  sold_gallons numeric(12,3) not null default 0,
+  ending_gallons numeric(12,3) not null default 0,
+  actual_inventory numeric(12,3) not null default 0,
+  rack_cost_per_gallon numeric(8,3) not null default 0,
+  retail_price_per_gallon numeric(8,3) not null default 0,
+  target_margin numeric(8,3) not null default 0.20,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  book_inventory numeric generated always as (beginning_gallons + delivered_gallons - sold_gallons) stored,
+  variance numeric generated always as (
+    coalesce(nullif(actual_inventory, 0), ending_gallons) - (beginning_gallons + delivered_gallons - sold_gallons)
+  ) stored,
+  actual_margin numeric generated always as (retail_price_per_gallon - rack_cost_per_gallon) stored,
+  suggested_price numeric generated always as (rack_cost_per_gallon + target_margin) stored,
+  is_variance_alert boolean generated always as (
+    abs(coalesce(nullif(actual_inventory, 0), ending_gallons) - (beginning_gallons + delivered_gallons - sold_gallons)) > 25
+  ) stored,
+  unique (user_id, store_id, fuel_grade_id, date)
+);
+
 create table if not exists public.lottery_entries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -620,6 +697,10 @@ create index if not exists cash_reconciliations_user_store_date_idx on public.ca
 create unique index if not exists cash_reconciliations_user_store_date_unique_idx on public.cash_reconciliations(user_id, store_id, date);
 create index if not exists expenses_user_store_date_idx on public.expenses(user_id, store_id, date desc);
 create index if not exists fuel_entries_user_store_date_idx on public.fuel_entries(user_id, store_id, date desc);
+create index if not exists fuel_grades_user_store_sort_idx on public.fuel_grades(user_id, store_id, sort_order, name);
+create index if not exists fuel_deliveries_user_store_date_idx on public.fuel_deliveries(user_id, store_id, date desc);
+create index if not exists fuel_tank_readings_user_store_date_idx on public.fuel_tank_readings(user_id, store_id, date desc);
+create index if not exists fuel_reconciliations_user_store_date_idx on public.fuel_reconciliations(user_id, store_id, date desc);
 create index if not exists lottery_entries_user_store_date_idx on public.lottery_entries(user_id, store_id, date desc);
 create index if not exists deli_entries_user_store_date_idx on public.deli_entries(user_id, store_id, date desc);
 create index if not exists payroll_entries_user_store_date_idx on public.payroll_entries(user_id, store_id, date_range_start desc);
@@ -690,6 +771,26 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_fuel_entries_updated_at on public.fuel_entries;
 create trigger set_fuel_entries_updated_at
 before update on public.fuel_entries
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_grades_updated_at on public.fuel_grades;
+create trigger set_fuel_grades_updated_at
+before update on public.fuel_grades
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_deliveries_updated_at on public.fuel_deliveries;
+create trigger set_fuel_deliveries_updated_at
+before update on public.fuel_deliveries
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_tank_readings_updated_at on public.fuel_tank_readings;
+create trigger set_fuel_tank_readings_updated_at
+before update on public.fuel_tank_readings
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_reconciliations_updated_at on public.fuel_reconciliations;
+create trigger set_fuel_reconciliations_updated_at
+before update on public.fuel_reconciliations
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_lottery_entries_updated_at on public.lottery_entries;
@@ -765,6 +866,10 @@ alter table public.monthly_totals enable row level security;
 alter table public.cash_reconciliations enable row level security;
 alter table public.expenses enable row level security;
 alter table public.fuel_entries enable row level security;
+alter table public.fuel_grades enable row level security;
+alter table public.fuel_deliveries enable row level security;
+alter table public.fuel_tank_readings enable row level security;
+alter table public.fuel_reconciliations enable row level security;
 alter table public.lottery_entries enable row level security;
 alter table public.deli_entries enable row level security;
 alter table public.payroll_entries enable row level security;
@@ -829,6 +934,34 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "Users can manage their own fuel entries" on public.fuel_entries;
 create policy "Users can manage their own fuel entries" on public.fuel_entries
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "Users can manage their own fuel grades" on public.fuel_grades;
+create policy "Users can manage their own fuel grades" on public.fuel_grades
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own fuel deliveries" on public.fuel_deliveries;
+create policy "Users can manage their own fuel deliveries" on public.fuel_deliveries
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own fuel tank readings" on public.fuel_tank_readings;
+create policy "Users can manage their own fuel tank readings" on public.fuel_tank_readings
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own fuel reconciliations" on public.fuel_reconciliations;
+create policy "Users can manage their own fuel reconciliations" on public.fuel_reconciliations
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Users can manage their own lottery entries" on public.lottery_entries;
 create policy "Users can manage their own lottery entries" on public.lottery_entries
@@ -1009,6 +1142,10 @@ grant select, insert, update, delete on table public.stores to authenticated;
 grant select, insert, update, delete on table public.store_members to authenticated;
 grant select, insert, update, delete on table public.monthly_totals to authenticated;
 grant select, insert, update, delete on table public.cash_reconciliations to authenticated;
+grant select, insert, update, delete on table public.fuel_grades to authenticated;
+grant select, insert, update, delete on table public.fuel_deliveries to authenticated;
+grant select, insert, update, delete on table public.fuel_tank_readings to authenticated;
+grant select, insert, update, delete on table public.fuel_reconciliations to authenticated;
 
 create table if not exists public.pos_systems (
   id uuid primary key default gen_random_uuid(),

@@ -18,6 +18,11 @@ import {
 } from "../src/lib/cash-reconciliation";
 import { aggregateData, posPaymentBreakdown, posSalesBySource, rangesOverlap } from "../src/lib/calculations";
 import {
+  calculateFuelReconciliation,
+  fuelReconciliationTotals,
+  soldGallonsForDate,
+} from "../src/lib/fuel-reconciliation";
+import {
   emptyMonthlyTotals,
   monthlyFuelMargin,
   monthlyFuelProfit,
@@ -32,7 +37,7 @@ import {
   mapRowsToPosPreview,
   validatePosPreviewRows,
 } from "../src/lib/pos-import";
-import type { CashReconciliation, CommandCenterData, DailySale, MonthlyTotal, PosImportRow } from "../src/lib/types";
+import type { CashReconciliation, CommandCenterData, DailySale, FuelReconciliation, MonthlyTotal, PosImportRow } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -123,6 +128,10 @@ const aggregateFixture: CommandCenterData = {
   cash_reconciliations: [],
   daily_sales: [dailySale("2026-06-01"), dailySale("2026-06-02")],
   fuel_entries: [{ id: "fuel", user_id: "user", store_id: "store", date: "2026-06-01", gallons_sold: 100, retail_price_per_gallon: 3.6, cost_per_gallon: 3.3, notes: null }],
+  fuel_grades: [],
+  fuel_deliveries: [],
+  fuel_tank_readings: [],
+  fuel_reconciliations: [],
   lottery_entries: [], deli_entries: [], expenses: [],
   payroll_entries: [{ id: "pay", user_id: "user", store_id: "store", employee_name: "Test", date_range_start: "2026-05-01", date_range_end: "2026-07-01", hours_worked: 10, hourly_rate: 20, notes: null }],
   pos_systems: [], pos_imports: [], pos_column_mappings: [], pos_import_rows: [],
@@ -216,6 +225,54 @@ const reconciled: CashReconciliation = {
 };
 assert.deepEqual(unreconciledDailySaleDates(aggregateFixture.daily_sales, [reconciled]), ["2026-06-02"], "unreconciled days should exclude saved reconciliation dates");
 assert.equal(reconciliationTotals([reconciled]).needsReview, 1, "reconciliation totals should count review items");
+
+const fuelMath = calculateFuelReconciliation({
+  beginning_gallons: 8000,
+  delivered_gallons: 7000,
+  sold_gallons: 2500,
+  ending_gallons: 12480,
+  actual_inventory: 12480,
+  rack_cost_per_gallon: 3.1,
+  retail_price_per_gallon: 3.39,
+  target_margin: 0.25,
+}, 15);
+assert.equal(fuelMath.bookInventory, 12500, "fuel reconciliation should calculate book inventory");
+assert.equal(fuelMath.variance, -20, "fuel reconciliation should calculate tank variance");
+assert.equal(fuelMath.isVarianceAlert, true, "fuel variance above threshold should alert");
+closeTo(fuelMath.actualMargin, 0.29, "fuel reconciliation should calculate actual margin");
+closeTo(fuelMath.suggestedPrice, 3.35, "fuel reconciliation should calculate suggested price");
+
+assert.deepEqual(
+  soldGallonsForDate("2026-06-02", aggregateFixture.fuel_entries, [cashPosRow]),
+  { source: "Manual fuel entries", gallons: 0 },
+  "sold gallons should fall back to manual entries when POS fuel gallons are absent",
+);
+const fuelPosRow = { ...cashPosRow, id: "fuel-pos", fuel_gallons: 3200, fuel_sales: 10848, fuel_cost: 9920 };
+assert.deepEqual(
+  soldGallonsForDate("2026-06-02", aggregateFixture.fuel_entries, [fuelPosRow]),
+  { source: "POS imports", gallons: 3200 },
+  "sold gallons should prefer POS fuel gallons when available",
+);
+
+const fuelReconciliation: FuelReconciliation = {
+  id: "fuel-recon",
+  user_id: "user",
+  store_id: "store",
+  date: "2026-06-02",
+  fuel_grade_id: "regular",
+  grade_name: "Regular",
+  beginning_gallons: 8000,
+  delivered_gallons: 7000,
+  sold_gallons: 2500,
+  ending_gallons: 12480,
+  actual_inventory: 12480,
+  rack_cost_per_gallon: 3.1,
+  retail_price_per_gallon: 3.2,
+  target_margin: 0.2,
+  notes: null,
+};
+assert.equal(fuelReconciliationTotals([fuelReconciliation]).alertCount, 0, "default threshold should not alert for 20 gallons");
+assert.equal(fuelReconciliationTotals([fuelReconciliation]).lowMarginCount, 1, "fuel reconciliation totals should count low margin grades");
 
 const savedMonthlyTotal: MonthlyTotal = {
   ...monthlyTotals,
