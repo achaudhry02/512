@@ -15,7 +15,7 @@ Release candidate: `1.0.0-rc.1`
 | 7 | Inventory, purchase orders, receiving, histories | Implemented | Live receipt, duplicate prevention, histories, shrink, sale deduction, and reversal pass. |
 | 8 | Reports, exports, onboarding, responsive UI | Implemented | Live CSV/PDF/ZIP and mobile reporting suite passes. Electron packaging is checked separately. |
 | 9 | End-of-Day Close | Implemented | Live close/reopen flow passes after migrations 011 and 012. |
-| 10 | Bank matching, confidence, permissions, membership RLS | Implemented but partially unverified | Live schema/policies/grants and owner browser flow pass. Full multi-role runtime RLS needs a non-empty service-role key. |
+| 10 | Bank matching, confidence, permissions, membership RLS | Implemented with one test limitation | Live schema/policies/grants and owner browser flow pass. Full automated multi-role runtime RLS still needs a non-empty service-role key. |
 
 ## Live Supabase result
 
@@ -23,6 +23,7 @@ Release candidate: `1.0.0-rc.1`
 - Store thresholds, `daily_close_statuses`, bank-match columns, membership helpers, explicit grants, and membership policies are installed.
 - Legacy `TRUNCATE`, `TRIGGER`, and `REFERENCES` privileges were removed from `anon` and `authenticated`.
 - The live migration history records the Phase 11 release migration and focused hardening fixes.
+- Migrations 013 and 014 add accurate lottery/deposit status fields, dedicated close/reopen RPCs, owner-only reopen enforcement, and scoped policy cleanup.
 - Supabase performance advisor findings for uncovered foreign keys, duplicate indexes, and membership-policy init plans were remediated by migration 012. Remaining performance notices are unused-index informational notices on the low-traffic QA project.
 - The security advisor retains five intentional warnings for membership-scoped `SECURITY DEFINER` helpers required by RLS. These helpers validate `auth.uid()` and reveal no cross-store data. Leaked-password protection remains a project-level Auth setting to enable before production.
 
@@ -61,4 +62,4 @@ Release candidate: `1.0.0-rc.1`
 
 ## Recommendation
 
-Release with limitations as `1.0.0-rc.1`. Promote to `1.0.0` after password-email acceptance, full multi-role live RLS execution, backup restore rehearsal, and deployment-platform smoke tests.
+Ready for owner acceptance testing as `1.0.0-rc.1`. Do not promote to `1.0.0` until password-email acceptance, full multi-role live RLS execution, backup restore rehearsal, and deployment-platform smoke tests are complete.

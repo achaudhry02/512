@@ -33,6 +33,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { useCommandCenter } from "@/lib/data-provider";
 import { ContextHelp } from "@/components/context-help";
+import { UnauthorizedState } from "@/components/unauthorized-state";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { canViewPage } from "@/lib/permissions";
 import { devInfo } from "@/lib/dev-log";
@@ -64,7 +65,7 @@ const navItems = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { error, loading, profile, role, selectStore, store, stores, user } = useCommandCenter();
+  const { authLoading, error, loading, profile, role, selectStore, store, stores, user } = useCommandCenter();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -84,7 +85,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.replace("/login");
   }
 
-  if (!loading && !user) {
+  if (authLoading || (loading && !store)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-card">
+          <p className="text-sm font-bold text-slate-600">Loading your store access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
@@ -266,13 +277,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               {error}
             </div>
           ) : null}
-          {canViewPage(role, pathname) ? children : (
-            <section className="rounded-lg border border-rose-200 bg-white p-8 shadow-card">
-              <p className="text-xs font-black uppercase text-rose-700">Access restricted</p>
-              <h2 className="mt-2 text-2xl font-black text-slate-950">This page is not available to the {role} role.</h2>
-              <p className="mt-3 text-sm font-medium text-slate-600">Choose an authorized page or ask a store owner to update your membership.</p>
-            </section>
-          )}
+          {canViewPage(role, pathname) ? children : <UnauthorizedState role={role} />}
         </div>
       </main>
     </div>

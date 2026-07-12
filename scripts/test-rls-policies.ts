@@ -9,6 +9,7 @@ const migrations = [
   "007_inventory_operations.sql", "008_reporting_exports.sql", "009_end_of_day_close.sql",
   "010_bank_matching_and_confidence.sql", "011_phase11_release_candidate.sql",
   "012_phase11_performance_hardening.sql",
+  "013_phase11_close_status_accuracy.sql", "014_phase11_policy_scope_hardening.sql",
 ];
 
 assert.ok(tableNames.length >= 30, "the schema audit should discover all application tables");
@@ -36,5 +37,17 @@ assert.match(schema, /Financial roles can view close statuses/i);
 assert.match(schema, /can_view_financials\(store_id\)/i);
 assert.match(schema, /can_edit_operations\(store_id\)/i);
 assert.match(schema, /foreach table_name in array/i, "shared store tables must receive the role policy set");
+assert.match(schema, /lottery_not_applicable boolean not null default false/i);
+assert.match(schema, /bank_deposit_pending boolean not null default false/i);
+assert.match(schema, /create or replace function public\.close_business_day/i);
+assert.match(schema, /create or replace function public\.reopen_business_day/i);
+assert.match(schema, /manager' and status = 'closed'/i, "manager updates must be limited to the closed target state");
+
+const releaseMigration = readFileSync("supabase/migrations/011_phase11_release_candidate.sql", "utf8");
+const scopedMigration = readFileSync("supabase/migrations/014_phase11_policy_scope_hardening.sql", "utf8");
+assert.doesNotMatch(releaseMigration, /tablename\s*<>\s*'users'/i, "release migration must not enumerate and drop unrelated public policies");
+assert.match(releaseMigration, /tablename = any\(array\[/i, "release migration policy cleanup must use an app-table allowlist");
+assert.doesNotMatch(scopedMigration, /tablename\s*<>/i, "policy hardening must not target arbitrary public tables");
+assert.match(scopedMigration, /policyname like 'Users can % their own %'/i, "policy hardening must target only legacy application policies");
 
 console.log(`Store-membership RLS schema audit passed for ${tableNames.length} tables and ${migrations.length} migrations.`);

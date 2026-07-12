@@ -254,8 +254,10 @@ export type DailyCloseStatus = EntryBase & {
   cash_reconciliation_completed: boolean;
   card_batch_completed: boolean;
   lottery_completed: boolean;
+  lottery_not_applicable: boolean;
   fuel_completed: boolean;
   bank_deposit_matched: boolean;
+  bank_deposit_pending: boolean;
   override_reason: string | null;
   closed_at: string | null;
   closed_by: string | null;

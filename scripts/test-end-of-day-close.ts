@@ -31,7 +31,7 @@ const broken = evaluateDailyClose({ ...data, cash_flow_entries: [] } as CommandC
   card_mismatch_threshold: 0,
   fuel_variance_threshold: 1,
 });
-assert.ok(broken.missingSteps.includes("Bank deposit match or pending override"));
+assert.ok(broken.missingSteps.includes("Bank deposit match or pending status"));
 assert.equal(broken.requiresOverride, true);
 assert.equal(broken.canClose, false);
 
@@ -41,5 +41,36 @@ assert.equal(evaluateDailyClose({ ...data, cash_flow_entries: [] } as CommandCen
   card_mismatch_threshold: 0,
   fuel_variance_threshold: 1,
 }, override).canClose, true);
+
+const pending = evaluateDailyClose({ ...data, cash_flow_entries: [] } as CommandCenterData, date, {
+  cash_variance_threshold: 5,
+  card_mismatch_threshold: 5,
+  fuel_variance_threshold: 10,
+}, { bank_deposit_pending: true });
+assert.equal(pending.checklist.bank_deposit_pending, true);
+assert.equal(pending.checklist.bank_deposit_matched, false, "pending must never be persisted or displayed as matched");
+assert.equal(pending.canClose, false, "pending deposits require an override reason");
+assert.ok(pending.missingSteps.includes("Bank deposit is pending and requires an override"));
+
+const pendingOverride = evaluateDailyClose({ ...data, cash_flow_entries: [] } as CommandCenterData, date, {
+  cash_variance_threshold: 5,
+  card_mismatch_threshold: 5,
+  fuel_variance_threshold: 10,
+}, { bank_deposit_pending: true, override_reason: "Settlement posts tomorrow." });
+assert.equal(pendingOverride.canClose, true);
+
+const noLotteryData = {
+  ...data,
+  daily_sales: data.daily_sales.map((sale) => ({ ...sale, lottery_sales: 0 })),
+  lottery_entries: [],
+} as CommandCenterData;
+const notApplicable = evaluateDailyClose(noLotteryData, date, {
+  cash_variance_threshold: 5,
+  card_mismatch_threshold: 5,
+  fuel_variance_threshold: 10,
+}, { lottery_not_applicable: true });
+assert.equal(notApplicable.checklist.lottery_completed, false);
+assert.equal(notApplicable.checklist.lottery_not_applicable, true);
+assert.equal(notApplicable.missingSteps.includes("Lottery entry or not-applicable confirmation"), false);
 
 console.log("End-of-Day Close rules tests passed.");

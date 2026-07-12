@@ -17,8 +17,10 @@ create table if not exists public.daily_close_statuses (
   cash_reconciliation_completed boolean not null default false,
   card_batch_completed boolean not null default false,
   lottery_completed boolean not null default false,
+  lottery_not_applicable boolean not null default false,
   fuel_completed boolean not null default false,
   bank_deposit_matched boolean not null default false,
+  bank_deposit_pending boolean not null default false,
   override_reason text,
   closed_at timestamptz,
   closed_by uuid references public.users(id) on delete set null,
@@ -218,7 +220,30 @@ do $$
 declare policy_row record;
 begin
   for policy_row in select tablename, policyname from pg_policies
-    where schemaname = 'public' and tablename <> 'users'
+    where schemaname = 'public'
+      and tablename = any(array[
+        'stores','store_members','daily_sales','monthly_totals','cash_reconciliations','expenses',
+        'fuel_entries','fuel_grades','fuel_deliveries','fuel_tank_readings','fuel_reconciliations',
+        'margin_settings','lottery_entries','deli_entries','payroll_entries','cash_flow_entries','imports',
+        'import_rows','vendors','product_categories','products','employees','product_sales','department_sales',
+        'store_sales_summaries','fuel_grade_sales','tender_sales','category_rules','vendor_rules','product_rules',
+        'pos_systems','pos_imports','pos_column_mappings','pos_import_rows','purchase_orders',
+        'purchase_order_items','inventory_adjustments','price_history','vendor_item_costs','daily_close_statuses'
+      ])
+      and (
+        policyname like 'Users can %'
+        or policyname like 'Financial roles can view %'
+        or policyname like 'Operations can insert %'
+        or policyname like 'Operations can update %'
+        or policyname like 'Operations can delete %'
+        or policyname in (
+          'Store members can view stores','Owners can insert stores','Owners can update stores','Owners can delete stores',
+          'Members can view store memberships','Owners can insert store memberships',
+          'Owners or invitees can update memberships','Owners can delete store memberships',
+          'Members can view daily sales','Managers can delete daily sales',
+          'Financial roles can view close statuses','Owners can delete close statuses'
+        )
+      )
   loop
     execute format('drop policy if exists %I on public.%I', policy_row.policyname, policy_row.tablename);
   end loop;

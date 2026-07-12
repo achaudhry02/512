@@ -20,6 +20,7 @@ import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } fr
 import type {
   BulkMonthlyEntry,
   CommandCenterData,
+  DailyCloseStatus,
   ImportRecord,
   ImportRow,
   InventoryAdjustmentType,
@@ -168,6 +169,14 @@ type CommandCenterContextValue = {
     payload: EntryPayload<T>,
     id?: string,
   ) => Promise<void>;
+  closeBusinessDay: (
+    payload: Pick<DailyCloseStatus,
+      "date" | "daily_sales_completed" | "pos_import_completed" | "cash_reconciliation_completed"
+      | "card_batch_completed" | "lottery_completed" | "lottery_not_applicable" | "fuel_completed"
+      | "bank_deposit_matched" | "bank_deposit_pending" | "override_reason" | "notes">,
+    id?: string,
+  ) => Promise<void>;
+  reopenBusinessDay: (id: string) => Promise<void>;
   saveBulkMonthlyEntries: (entries: BulkMonthlyEntry[], overwrite: boolean) => Promise<void>;
   saveMonthlyTotal: (
     payload: Omit<MonthlyTotal, "id" | "user_id" | "store_id" | "created_at" | "updated_at">,
@@ -242,6 +251,7 @@ function actionForTable(table: TableName): PermissionAction {
   if (table === "daily_sales") return "edit_daily_sales";
   if (table === "cash_reconciliations") return "edit_cash_reconciliation";
   if (table === "daily_close_statuses") return "close_day";
+  if (table === "margin_settings") return "manage_settings";
   if (["monthly_totals", "expenses", "payroll_entries", "cash_flow_entries"].includes(table)) return "edit_financials";
   return "edit_operations";
 }
@@ -365,7 +375,7 @@ function correctedRows(rows: ParsedImportRow[]) {
 export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [role, setRole] = useState<UserRole>("owner");
+  const [role, setRole] = useState<UserRole>("employee");
   const [store, setStore] = useState<Store | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [data, setData] = useState<CommandCenterData>(emptyData);
@@ -382,7 +392,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     if (!supabase) {
       setUser(null);
       setProfile(null);
-      setRole("owner");
+      setRole("employee");
       setStore(null);
       setStores([]);
       setData(emptyData);
@@ -396,7 +406,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       devInfo("[auth] no active Supabase session");
       setUser(activeUser);
       setProfile(null);
-      setRole("owner");
+      setRole("employee");
       setStore(null);
       setStores([]);
       setData(emptyData);
@@ -678,6 +688,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         role: "owner",
         selected_store_id: null,
       });
+      setRole("employee");
       setError(errorMessage(loadError, "Unable to load store data."));
     } finally {
       setLoading(false);
@@ -744,6 +755,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
   const saveEntry = useCallback(
     async <T extends TableName>(table: T, payload: EntryPayload<T>, id?: string) => {
+      if (table === "daily_close_statuses") {
+        throw new Error("Use the dedicated close or reopen action for End-of-Day Close records.");
+      }
       requireAction(actionForTable(table));
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
@@ -771,6 +785,54 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     },
     [refresh, requireAction, store, user],
   );
+
+  const closeBusinessDay = useCallback(async (
+    payload: Pick<DailyCloseStatus,
+      "date" | "daily_sales_completed" | "pos_import_completed" | "cash_reconciliation_completed"
+      | "card_batch_completed" | "lottery_completed" | "lottery_not_applicable" | "fuel_completed"
+      | "bank_deposit_matched" | "bank_deposit_pending" | "override_reason" | "notes">,
+    id?: string,
+  ) => {
+    requireAction("close_day");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !user || !store) throw new Error("Select a store before closing the business day.");
+    const { error: closeError } = await supabase.rpc("close_business_day", {
+      p_store_id: store.id,
+      p_date: payload.date,
+      p_daily_sales_completed: payload.daily_sales_completed,
+      p_pos_import_completed: payload.pos_import_completed,
+      p_cash_reconciliation_completed: payload.cash_reconciliation_completed,
+      p_card_batch_completed: payload.card_batch_completed,
+      p_lottery_completed: payload.lottery_completed,
+      p_lottery_not_applicable: payload.lottery_not_applicable,
+      p_fuel_completed: payload.fuel_completed,
+      p_bank_deposit_matched: payload.bank_deposit_matched,
+      p_bank_deposit_pending: payload.bank_deposit_pending,
+      p_override_reason: payload.override_reason,
+      p_notes: payload.notes,
+      p_close_id: id ?? null,
+    });
+    if (closeError) {
+      setError(closeError.message);
+      throw closeError;
+    }
+    await refresh();
+  }, [refresh, requireAction, store, user]);
+
+  const reopenBusinessDay = useCallback(async (id: string) => {
+    requireAction("reopen_day");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !user || !store) throw new Error("Select a store before reopening the business day.");
+    const { error: reopenError } = await supabase.rpc("reopen_business_day", {
+      p_close_id: id,
+      p_store_id: store.id,
+    });
+    if (reopenError) {
+      setError(reopenError.message);
+      throw reopenError;
+    }
+    await refresh();
+  }, [refresh, requireAction, store, user]);
 
   const saveBulkMonthlyEntries = useCallback(
     async (entries: BulkMonthlyEntry[], overwrite: boolean) => {
@@ -1166,7 +1228,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
   const deleteEntry = useCallback(
     async <T extends TableName>(table: T, id: string) => {
-      requireAction("delete_records");
+      requireAction(table === "margin_settings" || table === "daily_close_statuses" ? "manage_settings" : "delete_records");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in before deleting entries.");
@@ -2238,6 +2300,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const createdStore = newStore as Store;
         setStores((current) => [...current.filter((candidate) => candidate.id !== createdStore.id), createdStore]);
         setStore(createdStore);
+        setRole("owner");
         setData(emptyData);
         setProfile((current) => current ? { ...current, selected_store_id: createdStore.id } : current);
       }
@@ -2363,6 +2426,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       error,
       refresh,
       saveEntry,
+      closeBusinessDay,
+      reopenBusinessDay,
       saveBulkMonthlyEntries,
       saveMonthlyTotal,
       deleteMonthlyTotal,
@@ -2403,6 +2468,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       refresh,
       receivePurchaseOrder,
       saveEntry,
+      closeBusinessDay,
+      reopenBusinessDay,
       saveMonthlyTotal,
       saveResource,
       saveBulkMonthlyEntries,

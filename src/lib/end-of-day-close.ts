@@ -23,7 +23,8 @@ export type DailyCloseEvaluation = {
   summary: DailyCloseSummary;
   checklist: Pick<DailyCloseStatus,
     | "daily_sales_completed" | "pos_import_completed" | "cash_reconciliation_completed"
-    | "card_batch_completed" | "lottery_completed" | "fuel_completed" | "bank_deposit_matched">;
+    | "card_batch_completed" | "lottery_completed" | "lottery_not_applicable" | "fuel_completed"
+    | "bank_deposit_matched" | "bank_deposit_pending">;
   missingSteps: string[];
   mismatches: string[];
   requiresOverride: boolean;
@@ -38,7 +39,7 @@ export function evaluateDailyClose(
   data: CommandCenterData,
   date: string,
   settings: CloseSettings,
-  saved?: DailyCloseStatus | null,
+  saved?: Partial<DailyCloseStatus> | null,
 ): DailyCloseEvaluation {
   const daily = data.daily_sales.filter((row) => row.date === date);
   const pos = data.pos_import_rows.filter((row) => row.date === date && row.import_action !== "skip");
@@ -74,22 +75,32 @@ export function evaluateDailyClose(
   const hasFuelGrades = data.fuel_grades.some((row) => row.active);
   const fuelDataExists = fuelEntries.length > 0 || fuelReconciliations.length > 0 || daily.some((row) => row.fuel_gallons_sold > 0) || pos.some((row) => row.fuel_gallons > 0);
   const fuelWithinThreshold = fuelReconciliations.every((row) => Math.abs(row.variance ?? 0) <= settings.fuel_variance_threshold);
+  const lotteryCompleted = lottery.length > 0
+    || daily.some((row) => row.lottery_sales > 0)
+    || pos.some((row) => row.lottery_sales > 0)
+    || saved?.lottery_completed === true;
+  const lotteryNotApplicable = saved?.lottery_not_applicable === true;
+  const bankDepositMatched = bankDeposits.length > 0 || saved?.bank_deposit_matched === true;
+  const bankDepositPending = !bankDepositMatched && saved?.bank_deposit_pending === true;
   const checklist = {
     daily_sales_completed: daily.length > 0 || pos.length > 0 || saved?.daily_sales_completed === true,
     pos_import_completed: pos.length > 0 || saved?.pos_import_completed === true,
     cash_reconciliation_completed: Boolean(cash) || saved?.cash_reconciliation_completed === true,
     card_batch_completed: Boolean(cash) && Math.abs(cardMismatch) <= settings.card_mismatch_threshold,
-    lottery_completed: lottery.length > 0 || daily.some((row) => row.lottery_sales > 0) || pos.some((row) => row.lottery_sales > 0) || saved?.lottery_completed === true,
+    lottery_completed: lotteryCompleted,
+    lottery_not_applicable: lotteryNotApplicable,
     fuel_completed: (!hasFuelGrades || (fuelDataExists && fuelWithinThreshold)) || saved?.fuel_completed === true,
-    bank_deposit_matched: bankDeposits.length > 0 || saved?.bank_deposit_matched === true,
+    bank_deposit_matched: bankDepositMatched,
+    bank_deposit_pending: bankDepositPending,
   };
 
   const missingSteps: string[] = [];
   if (!checklist.daily_sales_completed) missingSteps.push("Daily sales or POS import");
   if (!checklist.cash_reconciliation_completed) missingSteps.push("Cash reconciliation");
   if (!checklist.fuel_completed) missingSteps.push("Fuel reconciliation");
-  if (!checklist.lottery_completed) missingSteps.push("Lottery entry or not-applicable confirmation");
-  if (!checklist.bank_deposit_matched) missingSteps.push("Bank deposit match or pending override");
+  if (!checklist.lottery_completed && !checklist.lottery_not_applicable) missingSteps.push("Lottery entry or not-applicable confirmation");
+  if (checklist.bank_deposit_pending) missingSteps.push("Bank deposit is pending and requires an override");
+  else if (!checklist.bank_deposit_matched) missingSteps.push("Bank deposit match or pending status");
   const mismatches: string[] = [];
   if (Math.abs(cashOverShort) > settings.cash_variance_threshold) mismatches.push("Cash over/short exceeds threshold");
   if (Math.abs(cardMismatch) > settings.card_mismatch_threshold) mismatches.push("Card batch mismatch exceeds threshold");

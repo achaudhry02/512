@@ -66,7 +66,10 @@ async function uploadAndPreview(page: Page, pos: string, file: string) {
 
 async function saveImport(page: Page, label: string) {
   await page.getByTestId("pos-save-import").click();
-  await page.waitForTimeout(3500);
+  await page.waitForFunction(() => {
+    const preview = document.querySelector('[data-testid="pos-preview"]');
+    return !preview || /Imported \d+ POS rows|No new POS rows to import|Unable to save POS import/i.test(document.body.innerText);
+  }, null, { timeout: 20_000 });
   const text = await pageText(page);
   assert.doesNotMatch(text, /Unable to save POS import/i, `${label}: POS import should save without an error banner`);
   const previewVisible = await page.getByTestId("pos-preview").isVisible().catch(() => false);

@@ -161,7 +161,10 @@ async function main() {
     await saveAll.waitFor({ state: "visible" });
     assert.equal(await saveAll.isEnabled(), true, "valid bulk rows should be saveable");
     await saveAll.click();
-    await page.getByText("Saved 28 daily entries for 2098-02. Dashboard and reports now include this month.", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
+    const bulkSuccess = "Saved 28 daily entries for 2098-02. Dashboard and reports now include this month.";
+    await page.waitForFunction((success) => document.body.innerText.includes(success) || /cannot perform|unable to save|permission denied/i.test(document.body.innerText), bulkSuccess, { timeout: 30_000 });
+    const bulkPageText = await page.locator("main").innerText();
+    assert.ok(bulkPageText.includes(bulkSuccess), `bulk save failed: ${bulkPageText.slice(-700)}`);
 
     await page.goto(`${baseUrl}/pos-integrations`);
     await waitForWorkspace(page);
@@ -217,14 +220,34 @@ async function main() {
     await page.getByRole("heading", { name: "End-of-Day Close" }).waitFor({ state: "visible" });
     await page.getByLabel("Override reason").fill("E2E override: lottery and bank review remain pending.");
     await page.getByLabel("Notes").fill(`Phase 10 close ${suffix}`);
-    await page.getByText("Lottery not applicable", { exact: true }).click();
-    await page.getByText("Bank deposit pending", { exact: true }).click();
+    await page.getByLabel("Lottery not applicable").check();
+    await page.getByLabel("Bank deposit pending").check();
     await page.getByRole("button", { name: "Close Day" }).click();
     const closeResponse = page.locator("section").filter({ hasText: "Review and close" }).locator("p.mt-4.text-sm.font-bold");
     await closeResponse.waitFor({ state: "visible", timeout: 20_000 });
     assert.equal(await closeResponse.innerText(), "Business day closed.", "close submission should succeed");
+    const { data: closedRow, error: closedRowError } = await cleanupClient
+      .from("daily_close_statuses")
+      .select("id,status,lottery_completed,lottery_not_applicable,bank_deposit_matched,bank_deposit_pending")
+      .eq("store_id", testStoreId)
+      .eq("date", dailyDate)
+      .single();
+    if (closedRowError) throw closedRowError;
+    assert.equal(closedRow.status, "closed");
+    assert.equal(closedRow.lottery_completed, false);
+    assert.equal(closedRow.lottery_not_applicable, true);
+    assert.equal(closedRow.bank_deposit_matched, false, "pending deposit must not be persisted as matched");
+    assert.equal(closedRow.bank_deposit_pending, true);
     await page.getByRole("button", { name: "Reopen Day" }).click();
     await page.getByText("Business day reopened.", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
+    const { data: reopenedRow, error: reopenedRowError } = await cleanupClient
+      .from("daily_close_statuses")
+      .select("status,reopened_by")
+      .eq("id", closedRow.id)
+      .single();
+    if (reopenedRowError) throw reopenedRowError;
+    assert.equal(reopenedRow.status, "in_progress");
+    assert.equal(reopenedRow.reopened_by, userId, "owner reopen RPC should record the actor");
 
     await page.goto(`${baseUrl}/bank-matching`);
     await waitForWorkspace(page);

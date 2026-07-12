@@ -107,8 +107,8 @@ export function buildAccountantPackageFiles(data: CommandCenterData, options: Ex
       ...cashFlow.rows.map((entry) => [entry.date, entry.flow_type, entry.vendor_name, entry.description, entry.amount, entry.match_status, entry.matched_record_type, entry.match_confidence]),
     ]),
     "daily-close-status.csv": rowsToCsv([
-      ["Date", "Status", "Closed at", "Closed by", "Override reason", "Notes"],
-      ...closeRows.map((entry) => [entry.date, entry.status, entry.closed_at, entry.closed_by, entry.override_reason, entry.notes]),
+      ["Date", "Status", "Lottery completed", "Lottery not applicable", "Bank deposit matched", "Bank deposit pending", "Closed at", "Closed by", "Override reason", "Notes"],
+      ...closeRows.map((entry) => [entry.date, entry.status, entry.lottery_completed ? "Yes" : "No", entry.lottery_not_applicable ? "Yes" : "No", entry.bank_deposit_matched ? "Yes" : "No", entry.bank_deposit_pending ? "Yes" : "No", entry.closed_at, entry.closed_by, entry.override_reason, entry.notes]),
     ]),
     "payroll.csv": rowsToCsv([
       ["Employee", "Start", "End", "Hours", "Rate", "Pay"],

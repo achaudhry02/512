@@ -128,7 +128,7 @@ This repo includes:
 
 The app automatically creates a profile in `public.users` and a default store for each authenticated user.
 
-For an existing Phase 7+ database, apply `supabase/migrations/011_phase11_release_candidate.sql`, then `supabase/migrations/012_phase11_performance_hardening.sql`. They safely add the remaining release objects, least-privilege grants, membership RLS, shared-store inventory RPC authorization, optimized membership policies, and foreign-key indexes without resetting data. Earlier databases should apply `001_initial_schema.sql` through `012_phase11_performance_hardening.sql` in numeric order, skipping versions already represented in that database.
+For an existing Phase 7+ database, apply migrations 011 through 014 in numeric order. Migrations 013 and 014 add accurate close-state fields, dedicated close/reopen RPCs, transition-sensitive RLS, and scoped policy cleanup. They do not reset application data or remove unrelated user-defined policies. Earlier databases should apply `001_initial_schema.sql` through `014_phase11_policy_scope_hardening.sql` in numeric order, skipping versions already represented in that database.
 
 To verify installation, use the Supabase Table Editor or SQL editor to confirm `daily_close_statuses`, `store_members`, and the new `cash_flow_entries.match_status` column exist. Then run `npm run test:rls`; run `npm run test:rls-live` only after the service-role environment variable is configured.
 
@@ -141,6 +141,21 @@ The app uses Supabase SSR middleware to protect authenticated routes. `AppShell`
 `supabase/schema.sql` adds `users.role`, `users.selected_store_id`, and `store_members`.
 
 Roles are stored per store membership as `owner`, `manager`, `employee`, or `accountant`. Owners have full access. Managers can run operations, imports, inventory, reconciliation, close, and reporting but cannot manage members or owner settings. Employees can enter daily sales but cannot access P&L, payroll, vendor spend, reports, exports, or settings. Accountants have read-only access to reports, expenses, payroll, cash flow, and reconciliation history. Owners manage invitations and roles under Settings -> Members; the primary owner cannot be removed or demoted.
+
+| Area | Owner | Manager | Employee | Accountant |
+| --- | --- | --- | --- | --- |
+| Daily sales | Read/write/delete | Read/write/delete | Read/write | No access |
+| Cash reconciliation | Read/write/delete | Read/write/delete | Read/write | Read-only |
+| End-of-Day Close | Close/reopen/delete | Close only | No access | No access |
+| Bank matching | Read/write | Read/write | No access | Read-only |
+| Expenses and payroll | Read/write/delete | Read/write/delete | No access | Read-only |
+| Smart Import and POS | Read/write/rollback | Read/write/rollback | No access | No access |
+| Inventory, vendors, purchase orders | Read/write/delete | Read/write/delete | No access | No access |
+| Reports and exports | Read/export | Read/export | No access | Read/export |
+| Store settings and margins | Read/write | No access | No access | No access |
+| Members and staff administration | Read/write | No access | No access | No access |
+
+Authorization is enforced at three layers: active-route guards keep restricted pages unmounted, provider methods reject unauthorized direct calls, and RLS/RPC checks enforce the active store role at the database boundary.
 
 RLS resolves access through `is_store_member`, `current_store_role`, `can_manage_store`, `can_edit_operations`, and `can_view_financials`. Shared data queries use `store_id`; `user_id` remains creator/owner metadata and is no longer the sole access condition.
 
@@ -290,7 +305,7 @@ Store-owned tables include `user_id` and `store_id`. RLS checks accepted `store_
 
 ## End-of-Day Close
 
-Open `/end-of-day-close` as an owner or manager. Select the business date and review inside sales, fuel, lottery, expected/actual cash, cash over/short, card batches, bank deposit, and missing steps. Close requires sales or POS data, cash reconciliation, fuel data when active grades exist, lottery entry or not-applicable confirmation, and a matched or pending deposit. Variances use the store thresholds configured in Settings. A reason is mandatory when closing with missing controls or out-of-threshold variances. Only an owner can reopen a closed day.
+Open `/end-of-day-close` as an owner or manager. Select the business date and review inside sales, fuel, lottery, expected/actual cash, cash over/short, card batches, bank deposit, and missing steps. Close requires sales or POS data, cash reconciliation, fuel data when active grades exist, and either completed lottery work or an explicit not-applicable confirmation. A matched bank deposit is complete; a pending deposit remains pending and always requires an override reason. Variances use the store thresholds configured in Settings. Only an owner can reopen a closed day, enforced by the provider, RPC, and RLS transition policy.
 
 Close status is stored separately in `daily_close_statuses`; closing does not modify source sales, POS, fuel, lottery, or reconciliation rows. Dashboard, Reports, and accountant ZIP exports show close coverage.
 
@@ -705,7 +720,7 @@ Electron details:
 
 ### Phase 10 manual QA checklist
 
-- Apply migrations 011 and 012, then verify the three store variance thresholds in Settings.
+- Apply migrations 011 through 014, then verify the close-state columns, close/reopen RPCs, and three store variance thresholds.
 - Sign in as an owner, invite manager/employee/accountant accounts, accept each invitation by signing in with the invited email, and verify sidebar/page visibility.
 - Confirm manager operational writes succeed, employee access is limited to Daily Sales, accountant financial pages are read-only, and a non-member cannot query the store.
 - Save daily/POS, cash, fuel, lottery, and bank-deposit data; close the day without an override when all controls pass.
@@ -721,7 +736,7 @@ Known limitations: bank suggestions use deterministic date/amount/vendor heurist
 
 Before applying a release migration, confirm Supabase automated backups are enabled and record the latest successful backup time. For a separate logical backup, use a current Supabase CLI with `supabase db dump --linked --file backup-before-release.sql`, or use `pg_dump` with the database connection string. Keep backups encrypted and outside the repository.
 
-Restore into a disposable project first, apply migrations through `012_phase11_performance_hardening.sql`, and run the live RLS and browser suites. Do not rehearse destructive restore operations against production. See `docs/PHASE11_RELEASE_AUDIT.md` for the completion matrix and acceptance checklist.
+Restore into a disposable project first, apply migrations through `014_phase11_policy_scope_hardening.sql`, and run the live RLS and browser suites. Do not rehearse destructive restore operations against production. See `docs/PHASE11_RELEASE_AUDIT.md` for the completion matrix and acceptance checklist.
 
 Before deploying:
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { bankMatchingSummary, suggestBankMatch } from "../src/lib/bank-matching";
+import { canPerformAction, canViewPage } from "../src/lib/permissions";
 import type { CashFlowEntry, CommandCenterData } from "../src/lib/types";
 
 const base = { id: "bank", date: "2026-07-10", amount: 250, match_status: "unmatched" } as CashFlowEntry;
@@ -32,5 +33,9 @@ assert.deepEqual(bankMatchingSummary([
   { ...base, match_status: "matched" },
   { ...base, id: "two", match_status: "unmatched" },
 ] as CashFlowEntry[]), { total: 2, unmatched: 1, suggested: 0, matched: 1, ignored: 0 });
+assert.equal(canViewPage("accountant", "/bank-matching"), true);
+assert.equal(canPerformAction("accountant", "edit_financials"), false, "accountants must remain read-only in bank matching");
+assert.equal(canViewPage("employee", "/bank-matching"), false);
+assert.equal(canPerformAction("employee", "edit_financials"), false);
 
 console.log("Bank matching tests passed.");

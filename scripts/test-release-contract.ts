@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 const schema = readFileSync("supabase/schema.sql", "utf8");
 const migration = readFileSync("supabase/migrations/011_phase11_release_candidate.sql", "utf8");
 const hardeningMigration = readFileSync("supabase/migrations/012_phase11_performance_hardening.sql", "utf8");
+const closeMigration = readFileSync("supabase/migrations/013_phase11_close_status_accuracy.sql", "utf8");
+const scopedPolicyMigration = readFileSync("supabase/migrations/014_phase11_policy_scope_hardening.sql", "utf8");
 const provider = readFileSync("src/lib/data-provider.tsx", "utf8");
 const login = readFileSync("src/app/login/page.tsx", "utf8");
 const middleware = readFileSync("middleware.ts", "utf8");
@@ -25,11 +27,13 @@ for (const table of requiredTables) {
 }
 
 const rpcCalls = [...provider.matchAll(/\.rpc\("([a-z_]+)"/g)].map((match) => match[1]).sort();
-assert.deepEqual(rpcCalls, ["receive_purchase_order", "record_inventory_adjustment"]);
+assert.deepEqual(rpcCalls, ["close_business_day", "receive_purchase_order", "record_inventory_adjustment", "reopen_business_day"]);
 for (const rpc of rpcCalls) assert.match(schema, new RegExp(`create or replace function public\\.${rpc}\\(`, "i"));
 
 assert.doesNotMatch(migration, /\b(drop\s+table|truncate\s+table|delete\s+from)\b/i, "release migration must not delete application data");
 assert.doesNotMatch(hardeningMigration, /\b(drop\s+table|truncate\s+table|delete\s+from)\b/i, "hardening migration must not delete application data");
+assert.doesNotMatch(closeMigration, /\b(drop\s+table|truncate\s+table|delete\s+from)\b/i, "close migration must not delete application data");
+assert.doesNotMatch(scopedPolicyMigration, /\b(drop\s+table|truncate\s+table|delete\s+from)\b/i, "policy migration must not delete application data");
 assert.match(migration, /create table if not exists public\.daily_close_statuses/i);
 assert.match(migration, /add column if not exists match_status/i);
 assert.match(migration, /revoke all privileges on table public\.%I from anon, authenticated/i);
@@ -38,6 +42,11 @@ assert.match(migration, /Legacy generated estimate retained for compatibility/i)
 assert.match(migration, /Cash operators can update reconciliations/i);
 assert.match(hardeningMigration, /create index if not exists/i);
 assert.match(hardeningMigration, /\(select auth\.jwt\(\)\)->>'email'/i);
+assert.match(closeMigration, /bank_deposit_pending/i);
+assert.match(closeMigration, /Only an owner can reopen a business day/i);
+assert.match(scopedPolicyMigration, /tablename = any\(array\[/i);
+assert.doesNotMatch(scopedPolicyMigration, /tablename\s*<>/i);
+assert.match(provider, /Use the dedicated close or reopen action/);
 
 assert.match(login, /PASSWORD_RECOVERY/);
 assert.match(login, /auth\.updateUser\(\{ password \}\)/);
