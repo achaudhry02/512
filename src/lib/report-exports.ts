@@ -1,5 +1,7 @@
 import { buildDetailedPnl, categoryProfitability, fuelMarginByGrade, weeklyProfitRows } from "@/lib/accountant-reporting";
 import { cashFlowSummary, currency } from "@/lib/calculations";
+import { bankMatchingSummary } from "@/lib/bank-matching";
+import { calculatePnlConfidence } from "@/lib/pnl-confidence";
 import type { CommandCenterData } from "@/lib/types";
 
 type ExportOptions = {
@@ -50,12 +52,14 @@ function pnlRows(data: CommandCenterData, options: ExportOptions) {
 
 export function buildSummaryCsv(data: CommandCenterData, options: ExportOptions) {
   const pnl = buildDetailedPnl(data, options.start, options.end, options.includeEstimates);
+  const confidence = calculatePnlConfidence(data, options.start, options.end, options.includeEstimates);
   return rowsToCsv([
     ["Convenience Store Command Center report"],
     ["Store", options.storeName],
     ["Date range", `${options.start} to ${options.end}`],
     ["Estimated values", options.includeEstimates ? "Included" : "Excluded"],
     ["Data accuracy", options.includeEstimates ? pnl.report.profitAccuracyLabel : "Actual tracked data only (may be partial)"],
+    ["P&L confidence", `${confidence.score}/100 - ${confidence.label}`],
     [],
     ...pnlRows(data, options),
     [],
@@ -82,6 +86,10 @@ export function buildAccountantPackageFiles(data: CommandCenterData, options: Ex
     const date = entry.created_at?.slice(0, 10);
     return date && date >= options.start && date <= options.end;
   });
+  const confidence = calculatePnlConfidence(data, options.start, options.end, options.includeEstimates);
+  const closeRows = data.daily_close_statuses.filter((entry) => entry.date >= options.start && entry.date <= options.end);
+  const bankRows = data.cash_flow_entries.filter((entry) => entry.date >= options.start && entry.date <= options.end);
+  const bankMatches = bankMatchingSummary(bankRows);
 
   return {
     "summary.csv": buildSummaryCsv(data, options),
@@ -95,8 +103,12 @@ export function buildAccountantPackageFiles(data: CommandCenterData, options: Ex
       ...expenses.map((entry) => [entry.date, entry.vendor_name, entry.category, entry.payment_method, entry.amount, entry.notes]),
     ]),
     "cash-flow.csv": rowsToCsv([
-      ["Date", "Type", "Vendor", "Description", "Amount"],
-      ...cashFlow.rows.map((entry) => [entry.date, entry.flow_type, entry.vendor_name, entry.description, entry.amount]),
+      ["Date", "Type", "Vendor", "Description", "Amount", "Match status", "Matched record type", "Confidence"],
+      ...cashFlow.rows.map((entry) => [entry.date, entry.flow_type, entry.vendor_name, entry.description, entry.amount, entry.match_status, entry.matched_record_type, entry.match_confidence]),
+    ]),
+    "daily-close-status.csv": rowsToCsv([
+      ["Date", "Status", "Closed at", "Closed by", "Override reason", "Notes"],
+      ...closeRows.map((entry) => [entry.date, entry.status, entry.closed_at, entry.closed_by, entry.override_reason, entry.notes]),
     ]),
     "payroll.csv": rowsToCsv([
       ["Employee", "Start", "End", "Hours", "Rate", "Pay"],
@@ -147,11 +159,15 @@ export function buildAccountantPackageFiles(data: CommandCenterData, options: Ex
       `Store: ${options.storeName}`,
       `Period: ${options.start} to ${options.end}`,
       `Estimated values: ${options.includeEstimates ? "included" : "excluded"}`,
+      `P&L confidence: ${confidence.score}/100 - ${confidence.label}`,
+      `Closed days in package: ${closeRows.filter((entry) => entry.status === "closed").length} of ${closeRows.length} close records`,
+      `Bank matching: ${bankMatches.matched} matched, ${bankMatches.suggested} suggested, ${bankMatches.unmatched} unmatched, ${bankMatches.ignored} ignored`,
       "",
       "Monthly total records are used instead of daily records for the same month to prevent duplicate sales.",
       "Weekly P&L excludes monthly-total-only records because a monthly total cannot be allocated to a specific week.",
       "Owner draws, loan payments, and transfers are reported separately from operating profit.",
       "Actual-only reporting may be partial when item costs or tracked category costs are unavailable.",
+      ...confidence.missingItems.map((item) => `Needs review: ${item}`),
     ].join("\n"),
   };
 }

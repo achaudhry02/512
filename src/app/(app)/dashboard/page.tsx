@@ -40,7 +40,9 @@ import {
   unreconciledDailySaleDates,
 } from "@/lib/cash-reconciliation";
 import { fuelReconciliationTotals } from "@/lib/fuel-reconciliation";
+import { bankMatchingSummary } from "@/lib/bank-matching";
 import { marginRate } from "@/lib/margin-settings";
+import { calculatePnlConfidence } from "@/lib/pnl-confidence";
 import {
   aggregateData,
   analyzeProfitLeaks,
@@ -125,6 +127,14 @@ export default function DashboardPage() {
   const unreconciledDates = unreconciledDailySaleDates(data.daily_sales, data.cash_reconciliations);
   const cashReconciliationTotals = reconciliationTotals(data.cash_reconciliations);
   const fuelTotals = fuelReconciliationTotals(data.fuel_reconciliations);
+  const confidence = calculatePnlConfidence(
+    data,
+    view === "monthly" ? monthStartIso() : today,
+    view === "monthly" ? monthEndIso() : today,
+    activeSummary.profitAccuracy !== "actual",
+  );
+  const bankMatches = bankMatchingSummary(data.cash_flow_entries);
+  const todayClose = data.daily_close_statuses.find((entry) => entry.date === today);
   const lowStock = data.products.filter((product) => product.quantity_on_hand <= product.reorder_level);
   const bestSellingItems = Object.values(data.product_sales.reduce<Record<string, { name: string; quantity: number; sales: number }>>((items, sale) => {
     const current = items[sale.product_name] ?? { name: sale.product_name, quantity: 0, sales: 0 };
@@ -377,6 +387,22 @@ export default function DashboardPage() {
           label="Import rows needing review"
           trend="Review"
           value={data.import_rows.filter((row) => row.needs_review || row.row_status === "draft").length}
+        />
+        <StatCard
+          accent={confidence.score >= 85 ? "emerald" : confidence.score >= 65 ? "cyan" : confidence.score >= 40 ? "amber" : "rose"}
+          helper={`${confidence.label}; ${confidence.missingItems[0] ?? "No material completeness gaps"}`}
+          icon={Gauge}
+          label="P&L confidence"
+          trend={activeSummary.profitAccuracy}
+          value={confidence.score}
+        />
+        <StatCard
+          accent={todayClose?.status === "closed" ? "emerald" : "amber"}
+          helper={`${bankMatches.unmatched + bankMatches.suggested} bank transaction(s) still need review`}
+          icon={CalendarDays}
+          label="Today close status"
+          trend={(todayClose?.status ?? "not_started").replaceAll("_", " ")}
+          value={todayClose?.status === "closed" ? 1 : 0}
         />
       </div>
 

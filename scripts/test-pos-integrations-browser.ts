@@ -5,8 +5,12 @@ import path from "node:path";
 import { chromium, type Page } from "playwright";
 
 const baseUrl = process.env.POS_TEST_BASE_URL ?? "http://localhost:3000";
-const email = process.env.POS_TEST_EMAIL ?? "codex.pos.tester@gmail.com";
-const password = process.env.POS_TEST_PASSWORD ?? "TestPass123!";
+function required(value: string | undefined, name: string) {
+  if (!value) throw new Error(`${name} is required for the POS browser test.`);
+  return value;
+}
+const email = required(process.env.POS_TEST_EMAIL ?? process.env.E2E_TEST_EMAIL, "POS_TEST_EMAIL or E2E_TEST_EMAIL");
+const password = required(process.env.POS_TEST_PASSWORD ?? process.env.E2E_TEST_PASSWORD, "POS_TEST_PASSWORD or E2E_TEST_PASSWORD");
 const headless = process.env.POS_TEST_HEADED !== "1";
 
 const samples = [

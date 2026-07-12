@@ -1,5 +1,6 @@
-import { aggregateData, cashFlowSummary, sum } from "@/lib/calculations";
+import { aggregateData, cashFlowSummary, rangesOverlap, sum } from "@/lib/calculations";
 import { marginCategoryLabel, marginRate } from "@/lib/margin-settings";
+import { monthlyPeriodEnd, monthlyPeriodKey, monthlyPeriodStart } from "@/lib/monthly-totals";
 import type { CommandCenterData, MarginCategory } from "@/lib/types";
 
 export type ReportPreset =
@@ -134,7 +135,23 @@ export function buildDetailedPnl(
 }
 
 export function weeklyProfitRows(data: CommandCenterData, start: string, end: string, includeEstimates: boolean) {
-  const dailyOnlyData = { ...data, monthly_totals: [] };
+  const monthlyKeys = new Set(data.monthly_totals.map(monthlyPeriodKey));
+  const uncoveredDate = (date: string) => !monthlyKeys.has(date.slice(0, 7));
+  const uncoveredPayroll = (entry: CommandCenterData["payroll_entries"][number]) => !data.monthly_totals.some((month) =>
+    rangesOverlap(entry.date_range_start, entry.date_range_end, monthlyPeriodStart(month), monthlyPeriodEnd(month)),
+  );
+  const dailyOnlyData = {
+    ...data,
+    monthly_totals: [],
+    daily_sales: data.daily_sales.filter((entry) => uncoveredDate(entry.date)),
+    fuel_entries: data.fuel_entries.filter((entry) => uncoveredDate(entry.date)),
+    lottery_entries: data.lottery_entries.filter((entry) => uncoveredDate(entry.date)),
+    deli_entries: data.deli_entries.filter((entry) => uncoveredDate(entry.date)),
+    expenses: data.expenses.filter((entry) => uncoveredDate(entry.date)),
+    payroll_entries: data.payroll_entries.filter(uncoveredPayroll),
+    product_sales: data.product_sales.filter((entry) => uncoveredDate(entry.date)),
+    pos_import_rows: data.pos_import_rows.filter((entry) => !entry.date || uncoveredDate(entry.date)),
+  };
   const rows: Array<ReturnType<typeof buildDetailedPnl> & { start: string; end: string }> = [];
   let cursor = new Date(`${start}T00:00:00Z`);
   const rangeEnd = new Date(`${end}T00:00:00Z`);

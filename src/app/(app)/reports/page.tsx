@@ -37,6 +37,8 @@ import {
   weeklyProfitRows,
 } from "@/lib/accountant-reporting";
 import { downloadAccountantZip, downloadCsv, downloadPdf } from "@/lib/report-exports";
+import { bankMatchingSummary } from "@/lib/bank-matching";
+import { calculatePnlConfidence } from "@/lib/pnl-confidence";
 import { expenseCategories } from "@/lib/types";
 
 export default function ReportsPage() {
@@ -114,6 +116,15 @@ export default function ReportsPage() {
     [data, endDate, startDate],
   );
   const exportOptions = { storeName: store?.name ?? "Store", start: startDate, end: endDate, includeEstimates };
+  const confidence = useMemo(
+    () => calculatePnlConfidence(data, startDate, endDate, includeEstimates),
+    [data, endDate, includeEstimates, startDate],
+  );
+  const bankMatches = useMemo(
+    () => bankMatchingSummary(data.cash_flow_entries.filter((entry) => entry.date >= startDate && entry.date <= endDate)),
+    [data.cash_flow_entries, endDate, startDate],
+  );
+  const closedDays = data.daily_close_statuses.filter((entry) => entry.date >= startDate && entry.date <= endDate && entry.status === "closed").length;
 
   function applyPreset(nextPreset: ReportPreset) {
     setPreset(nextPreset);
@@ -250,6 +261,9 @@ export default function ReportsPage() {
         <StatCard label="Non-operating cash out" value={cashFlow.nonOperatingOutflows} accent={cashFlow.nonOperatingOutflows ? "amber" : "slate"} />
         <StatCard label="Net cash movement" value={cashFlow.netCashMovement} accent={cashFlow.netCashMovement >= 0 ? "emerald" : "rose"} />
         <StatCard label="Smart Import files" value={importsInRange.length} accent="slate" />
+        <StatCard label="P&L confidence" value={confidence.score} accent={confidence.score >= 85 ? "emerald" : confidence.score >= 65 ? "cyan" : confidence.score >= 40 ? "amber" : "rose"} helper={confidence.label} />
+        <StatCard label="Closed days" value={closedDays} accent={confidence.missingItems.some((item) => item.includes("not closed")) ? "amber" : "emerald"} />
+        <StatCard label="Unmatched bank rows" value={bankMatches.unmatched + bankMatches.suggested} accent={bankMatches.unmatched + bankMatches.suggested ? "amber" : "emerald"} />
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-card">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-slate-400 to-slate-800" />
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Profit margin</p>
@@ -259,6 +273,11 @@ export default function ReportsPage() {
           <p className="mt-4 text-xs font-medium text-slate-500">Net operating profit divided by report sales</p>
         </div>
       </div>
+
+      <section className="mt-8 grid gap-5 rounded-lg border border-slate-200 bg-white p-5 shadow-card lg:grid-cols-[220px_1fr]">
+        <div><p className="text-xs font-black uppercase text-slate-500">P&amp;L confidence</p><p className="mt-2 text-4xl font-black text-slate-950">{confidence.score}/100</p><p className="mt-2 text-sm font-black text-cyan-700">{confidence.label}</p></div>
+        <div><h3 className="font-black text-slate-950">Completeness review</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{confidence.reasons.map((reason) => <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900" key={reason}>{reason}</p>)}{confidence.missingItems.map((item) => <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900" key={item}>{item}</p>)}</div></div>
+      </section>
 
       <section className="mt-8 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-card">
         <div className="border-b border-slate-100 px-5 py-5">

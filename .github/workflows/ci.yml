@@ -31,6 +31,12 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
       E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      POS_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      POS_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      REPORT_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      REPORT_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      INVENTORY_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+      INVENTORY_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,3 +69,6 @@ jobs:
           trap 'kill $server_pid || true' EXIT
           npx wait-on http://localhost:3000
           npm run test:e2e
+          npm run test:pos-browser
+          npm run test:reports-browser
+          npm run test:inventory-live

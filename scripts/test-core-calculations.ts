@@ -16,7 +16,14 @@ import {
   reconciliationTotals,
   unreconciledDailySaleDates,
 } from "../src/lib/cash-reconciliation";
-import { aggregateData, posPaymentBreakdown, posSalesBySource, rangesOverlap } from "../src/lib/calculations";
+import {
+  aggregateData,
+  bestWorstCategoriesFromData,
+  dailyChart,
+  posPaymentBreakdown,
+  posSalesBySource,
+  rangesOverlap,
+} from "../src/lib/calculations";
 import {
   buildDetailedPnl,
   categoryProfitability,
@@ -46,7 +53,7 @@ import {
   mapRowsToPosPreview,
   validatePosPreviewRows,
 } from "../src/lib/pos-import";
-import type { CashReconciliation, CommandCenterData, DailySale, FuelReconciliation, MonthlyTotal, PosImportRow, Product } from "../src/lib/types";
+import type { CashReconciliation, CommandCenterData, DailySale, FuelReconciliation, MonthlyTotal, PosImportRow, Product, ProductSale } from "../src/lib/types";
 
 function closeTo(actual: number, expected: number, message: string) {
   assert.ok(Math.abs(actual - expected) < 0.000001, `${message}: expected ${expected}, got ${actual}`);
@@ -135,6 +142,8 @@ const dailySale = (date: string): DailySale => ({
 const aggregateFixture: CommandCenterData = {
   monthly_totals: [],
   cash_reconciliations: [],
+  daily_close_statuses: [],
+  store_members: [],
   daily_sales: [dailySale("2026-06-01"), dailySale("2026-06-02")],
   fuel_entries: [{ id: "fuel", user_id: "user", store_id: "store", date: "2026-06-01", gallons_sold: 100, retail_price_per_gallon: 3.6, cost_per_gallon: 3.3, notes: null }],
   fuel_grades: [],
@@ -404,6 +413,61 @@ assert.equal(posAggregate.insideSales, aggregate.insideSales + 5, "POS net sales
 assert.deepEqual(posSalesBySource([posRow]), [{ name: "Square", sales: 5, rows: 1 }], "POS sales by source should aggregate imported rows");
 assert.equal(posPaymentBreakdown([posRow]).Cash, 5.3, "POS payment breakdown should include cash totals");
 
+const sameDayPosAggregate = aggregateData(
+  { ...aggregateFixture, pos_import_rows: [{ ...posRow, id: "same-day-pos", date: "2026-06-01" }] },
+  "2026-06-01",
+  "2026-06-30",
+);
+assert.equal(sameDayPosAggregate.dailySales.length, 1, "POS data should replace manual daily totals for the same date");
+assert.equal(sameDayPosAggregate.insideSales, 1005, "same-day POS and manual sales must not be double counted");
+assert.equal(
+  dailyChart({ ...aggregateFixture, pos_import_rows: [{ ...posRow, id: "same-day-pos", date: "2026-06-01" }] })[0].inside,
+  5,
+  "dashboard trend should use POS instead of stacking same-day manual sales",
+);
+assert.equal(
+  bestWorstCategoriesFromData({ ...aggregateFixture, pos_import_rows: [{ ...posRow, id: "same-day-pos", date: "2026-06-01" }] }).ranked.find(([category]) => category === "Grocery")?.[1],
+  305,
+  "category ranking should use POS instead of stacking same-day manual sales",
+);
+
+const trackedFuelPosAggregate = aggregateData(
+  {
+    ...aggregateFixture,
+    pos_import_rows: [{
+      ...posRow,
+      id: "tracked-fuel-pos",
+      date: "2026-06-01",
+      department_category: "Fuel",
+      gross_sales: 350,
+      net_sales: 350,
+      fuel_sales: 350,
+      fuel_cost: 330,
+    }],
+  },
+  "2026-06-01",
+  "2026-06-30",
+);
+closeTo(trackedFuelPosAggregate.fuelProfit, 50, "tracked fuel should replace same-day POS fuel totals");
+assert.equal(trackedFuelPosAggregate.fuelRevenue, 710, "tracked fuel revenue should replace same-day POS fuel revenue");
+
+const actualProductSale: ProductSale = {
+  id: "actual-product", user_id: "user", store_id: "store", import_id: null, import_row_id: null,
+  product_id: "product-actual", vendor_id: null, date: "2026-06-01", product_name: "Grocery Basket",
+  sku_upc: "ACTUAL-1", quantity_sold: 1, unit_cost: 180, unit_retail_price: 300,
+  gross_sales: 300, gross_profit: 120, margin_percent: 40, category: "Grocery", vendor: null,
+};
+const productPriorityAggregate = aggregateData(
+  { ...aggregateFixture, product_sales: [actualProductSale] },
+  "2026-06-01",
+  "2026-06-30",
+);
+assert.equal(
+  productPriorityAggregate.grossProfit,
+  aggregate.grossProfit - 300 * 0.28 + 120,
+  "product-level actual profit should replace the matching category estimate",
+);
+
 assert.deepEqual(
   dateRangeForPreset("this_month", new Date("2026-06-18T12:00:00Z")),
   { start: "2026-06-01", end: "2026-06-30" },
@@ -466,8 +530,11 @@ const packageFiles = buildAccountantPackageFiles(reportingFixture, {
 assert.ok(packageFiles["pnl.csv"].includes("Net operating profit"), "accountant package should include a detailed P&L");
 assert.ok(packageFiles["weekly-pnl.csv"], "accountant package should include weekly P&L");
 assert.ok(packageFiles["cash-reconciliation.csv"], "accountant package should include cash reconciliation");
+assert.ok(packageFiles["daily-close-status.csv"], "accountant package should include daily close status");
 assert.ok(packageFiles["import-history.csv"], "accountant package should include import history");
 assert.ok(packageFiles["README.txt"].includes("Owner draws"), "accountant package should explain non-operating cash treatment");
+assert.ok(packageFiles["README.txt"].includes("P&L confidence"), "accountant package should report confidence");
+assert.ok(packageFiles["README.txt"].includes("Bank matching"), "accountant package should summarize bank matching");
 
 const onboardingStore = { id: "store", user_id: "user", name: "Test Store", address: null, city: null, state: null, zip: null };
 const emptyOnboarding = onboardingProgress(aggregateFixture, onboardingStore);

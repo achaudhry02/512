@@ -4,12 +4,16 @@ import { ArrowRight, ChartNoAxesCombined, ShieldCheck, Sparkles, Store, WalletCa
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { devInfo } from "@/lib/dev-log";
+
+type AuthMode = "login" | "signup" | "reset" | "update";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -26,6 +30,7 @@ export default function LoginPage() {
     let mounted = true;
 
     const params = new URLSearchParams(window.location.search);
+    let recovering = params.get("type") === "recovery" || window.location.hash.includes("type=recovery");
     const urlMessage = params.get("message");
     const urlError = params.get("error_description") ?? params.get("error");
 
@@ -38,7 +43,7 @@ export default function LoginPage() {
     }
 
     supabase.auth.getSession().then(({ data }) => {
-      console.info("[auth] login page getSession", {
+      devInfo("[auth] login page getSession", {
         hasSession: Boolean(data.session),
         userId: data.session?.user.id ?? null,
       });
@@ -46,7 +51,7 @@ export default function LoginPage() {
         return;
       }
 
-      if (data.session) {
+      if (data.session && !recovering) {
         router.replace("/dashboard");
       } else {
         setCheckingSession(false);
@@ -54,12 +59,19 @@ export default function LoginPage() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      console.info("[auth] login page onAuthStateChange", {
+      devInfo("[auth] login page onAuthStateChange", {
         event,
         hasSession: Boolean(session),
         userId: session?.user.id ?? null,
       });
-      if (session) {
+      if (event === "PASSWORD_RECOVERY") {
+        recovering = true;
+        setMode("update");
+        setCheckingSession(false);
+        setMessage("Enter and confirm your new password.");
+        return;
+      }
+      if (session && !recovering) {
         router.replace("/dashboard");
       }
     });
@@ -83,10 +95,19 @@ export default function LoginPage() {
       return;
     }
 
+    if (mode === "update" && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      setLoading(false);
+      return;
+    }
+
     const result =
+      mode === "update"
+        ? await supabase.auth.updateUser({ password })
+        :
       mode === "reset"
         ? await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/login?message=Password reset link accepted. Sign in with your new password.`,
+            redirectTo: `${window.location.origin}/login?type=recovery`,
           })
         : mode === "signup"
         ? await supabase.auth.signUp({
@@ -117,6 +138,13 @@ export default function LoginPage() {
       return;
     }
 
+    if (mode === "update") {
+      setLoading(false);
+      setMessage("Password updated. Redirecting to your dashboard.");
+      router.replace("/dashboard");
+      return;
+    }
+
     const hasAuthSession = "session" in result.data && Boolean(result.data.session);
 
     if (mode === "signup" && !hasAuthSession) {
@@ -126,7 +154,7 @@ export default function LoginPage() {
     }
 
     const { data: sessionData } = await supabase.auth.getSession();
-    console.info("[auth] login completed", {
+    devInfo("[auth] login completed", {
       hasSession: Boolean(sessionData.session),
       userId: sessionData.session?.user.id ?? null,
     });
@@ -173,7 +201,7 @@ export default function LoginPage() {
           ) : null}
 
           <form className="mt-8 rounded-[2rem] border border-white/80 bg-white p-5 shadow-premium" onSubmit={handleSubmit}>
-            <div className="mb-5 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black">
+            {mode !== "update" ? <div className="mb-5 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black">
               <button
                 className={`rounded-xl px-3 py-2 transition ${
                   mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
@@ -201,7 +229,7 @@ export default function LoginPage() {
               >
                 Reset
               </button>
-            </div>
+            </div> : <div className="mb-5 rounded-2xl bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-900">Set a new password</div>}
 
             {mode === "signup" ? (
               <label className="mb-4 block">
@@ -216,7 +244,7 @@ export default function LoginPage() {
               </label>
             ) : null}
 
-            <label className="mb-4 block">
+            {mode !== "update" ? <label className="mb-4 block">
               <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Email</span>
               <input
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
@@ -226,7 +254,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
               />
-            </label>
+            </label> : null}
 
             {mode !== "reset" ? (
             <label className="mb-4 block">
@@ -243,6 +271,21 @@ export default function LoginPage() {
             </label>
             ) : null}
 
+            {mode === "update" ? (
+              <label className="mb-4 block">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Confirm password</span>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:bg-white focus:ring-4 focus:ring-cyan-100"
+                  minLength={6}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Repeat your new password"
+                  required
+                  type="password"
+                  value={confirmPassword}
+                />
+              </label>
+            ) : null}
+
             {error ? <p className="mb-4 text-sm font-semibold text-red-600">{error}</p> : null}
             {message ? <p className="mb-4 text-sm font-semibold text-emerald-700">{message}</p> : null}
 
@@ -251,7 +294,7 @@ export default function LoginPage() {
               disabled={loading}
               type="submit"
             >
-              {loading ? "Working..." : mode === "login" ? "Login" : mode === "reset" ? "Send reset email" : "Create account"}
+              {loading ? "Working..." : mode === "login" ? "Login" : mode === "reset" ? "Send reset email" : mode === "update" ? "Update password" : "Create account"}
               <ArrowRight className="h-4 w-4" />
             </button>
 

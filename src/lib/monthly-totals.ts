@@ -135,7 +135,7 @@ export function monthlyNetMarginPercent(entry: MonthlyTotalsFormValues | Monthly
   return totalSales > 0 ? (monthlyNetProfit(entry, marginSettings) / totalSales) * 100 : 0;
 }
 
-export function monthlyTotalsToCsv(entry: MonthlyTotalsFormValues | MonthlyTotal) {
+export function monthlyTotalsToCsv(entry: MonthlyTotalsFormValues | MonthlyTotal, marginSettings: MarginSetting[] = []) {
   const rows: (string | number | null)[][] = [
     ["Metric", "Value"],
     ["Month", monthlyPeriodKey(entry)],
@@ -143,11 +143,11 @@ export function monthlyTotalsToCsv(entry: MonthlyTotalsFormValues | MonthlyTotal
     ["Total expenses", monthlyTotalExpenses(entry)],
     ["Fuel margin", monthlyFuelMargin(entry)],
     ["Fuel profit", monthlyFuelProfit(entry)],
-    ["Gross profit", monthlyGrossProfit(entry)],
-    ["Estimated net profit", monthlyNetProfit(entry)],
+    ["Gross profit", monthlyGrossProfit(entry, marginSettings)],
+    ["Estimated net profit", monthlyNetProfit(entry, marginSettings)],
     ["Expense percentage", monthlyExpensePercentage(entry)],
-    ["Gross margin %", monthlyGrossMarginPercent(entry)],
-    ["Net margin %", monthlyNetMarginPercent(entry)],
+    ["Gross margin %", monthlyGrossMarginPercent(entry, marginSettings)],
+    ["Net margin %", monthlyNetMarginPercent(entry, marginSettings)],
     ["Notes", entry.notes],
   ];
   return rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");

@@ -13,6 +13,8 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { defaultMarginSettings } from "@/lib/margin-settings";
 import { buildSampleStoreData } from "@/lib/onboarding";
+import { canPerformAction, roleForStore, type PermissionAction } from "@/lib/permissions";
+import { devInfo } from "@/lib/dev-log";
 import { planPosDuplicateImport, type PosMapping, type PosPreviewRow } from "@/lib/pos-import";
 import { normalizedRuleKey, rowGrossProfit, rowGrossSales, rowMarginPercent } from "@/lib/smart-import";
 import type {
@@ -28,6 +30,7 @@ import type {
   ResourceRowMap,
   ResourceTableName,
   Store,
+  StoreMember,
   TableName,
   TableRowMap,
   UserProfile,
@@ -40,6 +43,7 @@ const tableNames: TableName[] = [
   "daily_sales",
   "monthly_totals",
   "cash_reconciliations",
+  "daily_close_statuses",
   "expenses",
   "fuel_entries",
   "fuel_grades",
@@ -92,6 +96,7 @@ function orderColumnForTable(table: TableName) {
   if (table === "monthly_totals") return "year";
   if (table === "fuel_grades") return "sort_order";
   if (table === "margin_settings") return "category";
+  if (table === "daily_close_statuses") return "date";
   return "date";
 }
 
@@ -99,6 +104,8 @@ const emptyData: CommandCenterData = {
   daily_sales: [],
   monthly_totals: [],
   cash_reconciliations: [],
+  daily_close_statuses: [],
+  store_members: [],
   expenses: [],
   fuel_entries: [],
   fuel_grades: [],
@@ -148,6 +155,7 @@ type ResourcePayload<T extends ResourceTableName> = Omit<
 type CommandCenterContextValue = {
   user: User | null;
   profile: UserProfile | null;
+  role: UserRole;
   store: Store | null;
   stores: Store[];
   data: CommandCenterData;
@@ -215,6 +223,9 @@ type CommandCenterContextValue = {
   }) => Promise<void>;
   saveDefaultMargins: () => Promise<void>;
   seedSampleData: () => Promise<void>;
+  inviteStoreMember: (email: string, role: UserRole) => Promise<void>;
+  updateStoreMemberRole: (id: string, role: UserRole) => Promise<void>;
+  removeStoreMember: (id: string) => Promise<void>;
 };
 
 const CommandCenterContext = createContext<CommandCenterContextValue | undefined>(undefined);
@@ -225,6 +236,14 @@ function normalizedVendor(name: string) {
 
 function normalizeRole(role: unknown): UserRole {
   return role === "manager" || role === "employee" || role === "accountant" ? role : "owner";
+}
+
+function actionForTable(table: TableName): PermissionAction {
+  if (table === "daily_sales") return "edit_daily_sales";
+  if (table === "cash_reconciliations") return "edit_cash_reconciliation";
+  if (table === "daily_close_statuses") return "close_day";
+  if (["monthly_totals", "expenses", "payroll_entries", "cash_flow_entries"].includes(table)) return "edit_financials";
+  return "edit_operations";
 }
 
 function isUnavailableOptionalTable(error: { code?: string; message?: string }) {
@@ -346,6 +365,7 @@ function correctedRows(rows: ParsedImportRow[]) {
 export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [role, setRole] = useState<UserRole>("owner");
   const [store, setStore] = useState<Store | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [data, setData] = useState<CommandCenterData>(emptyData);
@@ -353,11 +373,16 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const requireAction = useCallback((action: PermissionAction) => {
+    if (!canPerformAction(role, action)) throw new Error(`Your ${role} role cannot perform this action.`);
+  }, [role]);
+
   const loadSupabaseData = useCallback(async (activeUser: User | null) => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
       setUser(null);
       setProfile(null);
+      setRole("owner");
       setStore(null);
       setStores([]);
       setData(emptyData);
@@ -368,9 +393,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     if (!activeUser) {
-      console.info("[auth] no active Supabase session");
+      devInfo("[auth] no active Supabase session");
       setUser(activeUser);
       setProfile(null);
+      setRole("owner");
       setStore(null);
       setStores([]);
       setData(emptyData);
@@ -384,7 +410,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     setError(null);
     setUser(activeUser);
     setAuthLoading(false);
-    console.info("[auth] active Supabase session", {
+    devInfo("[auth] active Supabase session", {
       userId: activeUser.id,
       email: activeUser.email,
     });
@@ -422,10 +448,18 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         profileRow = insertedProfile as UserProfile;
       }
 
+      if (activeUser.email) {
+        const { error: claimError } = await supabase
+          .from("store_members")
+          .update({ user_id: activeUser.id, accepted_at: new Date().toISOString() })
+          .is("user_id", null)
+          .ilike("invited_email", activeUser.email);
+        if (claimError && !isUnavailableOptionalTable(claimError)) throw claimError;
+      }
+
       const storesResponse = await supabase
         .from("stores")
         .select("*")
-        .eq("user_id", activeUser.id)
         .order("created_at", { ascending: true });
 
       if (storesResponse.error) {
@@ -453,6 +487,15 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         }
 
         stores = newStore ? [newStore] : [];
+        if (newStore) {
+          await supabase.from("store_members").upsert({
+            user_id: activeUser.id,
+            store_id: newStore.id,
+            role: "owner",
+            invited_email: activeUser.email ?? null,
+            accepted_at: new Date().toISOString(),
+          }, { onConflict: "user_id,store_id" });
+        }
       }
 
       const selectedStoreId =
@@ -471,12 +514,19 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const nextData: CommandCenterData = { ...emptyData };
 
       if (activeStore) {
+        const { data: memberRows, error: memberError } = await supabase
+          .from("store_members")
+          .select("*")
+          .eq("store_id", activeStore.id)
+          .order("created_at", { ascending: true });
+        if (memberError && !isUnavailableOptionalTable(memberError)) throw memberError;
+        nextData.store_members = (memberRows ?? []) as StoreMember[];
+
         const tableResults = await Promise.all(
           tableNames.map(async (table) => {
             let query = supabase
               .from(table)
               .select("*")
-              .eq("user_id", activeUser.id)
               .eq("store_id", activeStore.id)
               .order(orderColumnForTable(table), { ascending: false });
 
@@ -486,6 +536,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
             const { data: rows, error: tableError } = await query;
 
+            if (tableError && table === "daily_close_statuses" && isUnavailableOptionalTable(tableError)) {
+              return [table, []] as const;
+            }
             if (tableError) {
               throw tableError;
             }
@@ -509,7 +562,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             const { data: rows, error: tableError } = await supabase
               .from(table)
               .select("*")
-              .eq("user_id", activeUser.id)
               .eq("store_id", activeStore.id)
               .order(orderColumn, { ascending: table === "import_rows" });
 
@@ -536,7 +588,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             const { data: rows, error: tableError } = await supabase
               .from(table)
               .select("*")
-              .eq("user_id", activeUser.id)
               .eq("store_id", activeStore.id)
               .order(orderColumn, { ascending: table === "pos_import_rows" || table === "pos_systems" });
 
@@ -567,13 +618,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
             const { data: rows, error: tableError } = await supabase
               .from(table)
               .select("*")
-              .eq("user_id", activeUser.id)
               .eq("store_id", activeStore.id)
               .order(orderColumn, { ascending: false });
 
             if (tableError) {
               if (isUnavailableOptionalTable(tableError)) {
-                console.info(`[inventory] ${table} is unavailable until the Phase 7 schema is applied.`);
+                devInfo(`[inventory] ${table} is unavailable until the Phase 7 schema is applied.`);
                 return [table, []] as const;
               }
               throw tableError;
@@ -593,7 +643,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
               const { data: rows, error: tableError } = await supabase
                 .from(table)
                 .select("*")
-                .eq("user_id", activeUser.id)
                 .eq("store_id", activeStore.id)
                 .order("name");
 
@@ -612,6 +661,8 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         role: normalizeRole((profileRow as UserProfile).role),
         selected_store_id: (profileRow as UserProfile).selected_store_id ?? activeStore?.id ?? null,
       });
+      const membership = nextData.store_members.find((member) => member.user_id === activeUser.id && member.accepted_at);
+      setRole(activeStore ? roleForStore(activeUser.id, activeStore.user_id, membership?.role) : "employee");
       setStore(activeStore ?? null);
       setStores(stores);
       setData(nextData);
@@ -643,7 +694,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     const { data: sessionData } = (await supabase?.auth.getSession()) ?? { data: { session: null } };
-    console.info("[auth] refresh getSession", {
+    devInfo("[auth] refresh getSession", {
       hasSession: Boolean(sessionData.session),
       userId: sessionData.session?.user.id ?? null,
     });
@@ -667,7 +718,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     supabase.auth.getSession().then(({ data: sessionData }) => {
-      console.info("[auth] initial getSession", {
+      devInfo("[auth] initial getSession", {
         hasSession: Boolean(sessionData.session),
         userId: sessionData.session?.user.id ?? null,
       });
@@ -677,7 +728,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      console.info("[auth] onAuthStateChange", {
+      devInfo("[auth] onAuthStateChange", {
         event,
         hasSession: Boolean(session),
         userId: session?.user.id ?? null,
@@ -693,6 +744,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
   const saveEntry = useCallback(
     async <T extends TableName>(table: T, payload: EntryPayload<T>, id?: string) => {
+      requireAction(actionForTable(table));
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before saving entries.");
@@ -707,7 +759,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       };
 
       const result = id
-        ? await supabase.from(table).update(dbPayload).eq("id", id).eq("user_id", user.id)
+        ? await supabase.from(table).update(dbPayload).eq("id", id).eq("store_id", store.id)
         : await supabase.from(table).insert(dbPayload);
 
       if (result.error) {
@@ -717,11 +769,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const saveBulkMonthlyEntries = useCallback(
     async (entries: BulkMonthlyEntry[], overwrite: boolean) => {
+      requireAction("edit_daily_sales");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before saving bulk entries.");
@@ -789,7 +842,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { error: expenseDeleteError } = await supabase
           .from("expenses")
           .delete()
-          .eq("user_id", user.id)
           .eq("store_id", store.id)
           .in("date", dates)
           .like("notes", "Bulk monthly entry%");
@@ -802,7 +854,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { error: payrollDeleteError } = await supabase
           .from("payroll_entries")
           .delete()
-          .eq("user_id", user.id)
           .eq("store_id", store.id)
           .in("date_range_start", dates)
           .like("notes", "Bulk monthly entry%");
@@ -857,7 +908,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [data.daily_sales, refresh, store, user],
+    [data.daily_sales, refresh, requireAction, store, user],
   );
 
   const saveMonthlyTotal = useCallback(
@@ -865,6 +916,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       payload: Omit<MonthlyTotal, "id" | "user_id" | "store_id" | "created_at" | "updated_at">,
       id?: string,
     ) => {
+      requireAction("edit_financials");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before saving monthly totals.");
@@ -880,7 +932,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         store_id: store.id,
       };
       const result = id
-        ? await supabase.from("monthly_totals").update(dbPayload).eq("id", id).eq("user_id", user.id)
+        ? await supabase.from("monthly_totals").update(dbPayload).eq("id", id).eq("store_id", store.id)
         : await supabase.from("monthly_totals").insert(dbPayload);
 
       if (result.error) {
@@ -890,11 +942,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const deleteMonthlyTotal = useCallback(
     async (id: string) => {
+      requireAction("delete_records");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in before deleting monthly totals.");
@@ -904,7 +957,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         .from("monthly_totals")
         .delete()
         .eq("id", id)
-        .eq("user_id", user.id);
+        .eq("store_id", store?.id ?? "");
 
       if (deleteError) {
         setError(deleteError.message);
@@ -913,11 +966,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, store?.id, user],
   );
 
   const saveResource = useCallback(
     async <T extends ResourceTableName>(table: T, payload: ResourcePayload<T>, id?: string) => {
+      requireAction(table === "employees" ? "manage_members" : "manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before saving records.");
@@ -925,7 +979,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       const dbPayload = { ...payload, user_id: user.id, store_id: store.id };
       const result = id
-        ? await supabase.from(table).update(dbPayload).eq("id", id).eq("user_id", user.id)
+        ? await supabase.from(table).update(dbPayload).eq("id", id).eq("store_id", store.id)
         : await supabase.from(table).insert(dbPayload);
 
       if (result.error) {
@@ -934,21 +988,22 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const deleteResource = useCallback(
     async <T extends ResourceTableName>(table: T, id: string) => {
+      requireAction(table === "employees" ? "manage_members" : "manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) throw new Error("You must be signed in before deleting records.");
-      const { error: deleteError } = await supabase.from(table).delete().eq("id", id).eq("user_id", user.id);
+      const { error: deleteError } = await supabase.from(table).delete().eq("id", id).eq("store_id", store?.id ?? "");
       if (deleteError) {
         setError(deleteError.message);
         throw deleteError;
       }
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, store?.id, user],
   );
 
   const createPurchaseOrder = useCallback(
@@ -963,6 +1018,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       notes: string | null;
       items: { productId: string; quantity: number; unitCost: number }[];
     }) => {
+      requireAction("manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in before creating a purchase order.");
@@ -1020,17 +1076,18 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       });
       const { error: itemError } = await supabase.from("purchase_order_items").insert(itemRows);
       if (itemError) {
-        await supabase.from("purchase_orders").delete().eq("id", order.id).eq("user_id", user.id);
+        await supabase.from("purchase_orders").delete().eq("id", order.id).eq("store_id", store.id);
         setError(itemError.message);
         throw itemError;
       }
       await refresh();
     },
-    [data.products, data.vendors, refresh, store, user],
+    [data.products, data.vendors, refresh, requireAction, store, user],
   );
 
   const receivePurchaseOrder = useCallback(
     async (id: string) => {
+      requireAction("manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) throw new Error("You must be signed in before receiving inventory.");
       const { error: receiveError } = await supabase.rpc("receive_purchase_order", {
@@ -1042,18 +1099,19 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, user],
   );
 
   const cancelPurchaseOrder = useCallback(
     async (id: string) => {
+      requireAction("manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) throw new Error("You must be signed in before cancelling a purchase order.");
       const { error: cancelError } = await supabase
         .from("purchase_orders")
         .update({ status: "cancelled" })
         .eq("id", id)
-        .eq("user_id", user.id)
+        .eq("store_id", store?.id ?? "")
         .in("status", ["draft", "ordered", "partially_received"]);
       if (cancelError) {
         setError(cancelError.message);
@@ -1061,7 +1119,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, store?.id, user],
   );
 
   const saveInventoryAdjustment = useCallback(
@@ -1082,6 +1140,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       notes?: string | null;
       adjustmentDate?: string;
     }) => {
+      requireAction("manage_inventory");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) throw new Error("You must be signed in before adjusting inventory.");
       if (!Number.isFinite(quantityDelta) || quantityDelta === 0) {
@@ -1102,11 +1161,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, user],
   );
 
   const deleteEntry = useCallback(
     async <T extends TableName>(table: T, id: string) => {
+      requireAction("delete_records");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in before deleting entries.");
@@ -1116,7 +1176,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         .from(table)
         .delete()
         .eq("id", id)
-        .eq("user_id", user.id);
+        .eq("store_id", store?.id ?? "");
 
       if (deleteError) {
         setError(deleteError.message);
@@ -1125,11 +1185,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, user],
+    [refresh, requireAction, store?.id, user],
   );
 
   const saveSmartImport = useCallback(
     async (parsedImport: ParsedImportResult, rows: ParsedImportRow[]) => {
+      requireAction("manage_imports");
       const existingDuplicateKeys = new Set(data.import_rows.map((row) => row.duplicate_key).filter(Boolean));
       const acceptedRows = rows.filter((row) => {
         const duplicateKey = row.duplicateKey ?? rowDuplicateKey(row);
@@ -1160,7 +1221,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession();
-      console.info("[auth] smart import getSession", {
+      devInfo("[auth] smart import getSession", {
         hasSession: Boolean(session),
         userId: session?.user.id ?? null,
         importRowsCount: rows.length,
@@ -1191,7 +1252,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { data: stores, error: storesError } = await supabaseClient
           .from("stores")
           .select("*")
-          .eq("user_id", userId)
           .order("created_at", { ascending: true });
 
         if (storesError) {
@@ -1710,7 +1770,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           },
         })
         .eq("id", importId)
-        .eq("user_id", userId);
+        .eq("store_id", storeId);
       if (metadataUpdateError) {
         console.error("Smart Import imports metadata update failed:", metadataUpdateError);
         throw metadataUpdateError;
@@ -1719,11 +1779,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       await saveLearnedCorrections();
       await refresh();
     },
-    [data.import_rows, data.imports, refresh, store, user],
+    [data.import_rows, data.imports, refresh, requireAction, store, user],
   );
 
   const rollbackSmartImport = useCallback(
     async (importId: string) => {
+      requireAction("manage_imports");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in before rolling back imports.");
@@ -1771,7 +1832,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { error: deleteError } = await supabase
           .from(table)
           .delete()
-          .eq("user_id", user.id)
+          .eq("store_id", store?.id ?? "")
           .in("id", ids);
         if (deleteError) {
           setError(deleteError.message);
@@ -1790,7 +1851,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { error: fallbackDeleteError } = await supabase
           .from(table)
           .delete()
-          .eq("user_id", user.id)
+          .eq("store_id", store?.id ?? "")
           .eq("import_id", importId);
         if (fallbackDeleteError) {
           setError(fallbackDeleteError.message);
@@ -1802,7 +1863,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const { error: rowUpdateError } = await supabase
         .from("import_rows")
         .update({ row_status: "rolled_back" })
-        .eq("user_id", user.id)
+        .eq("store_id", store?.id ?? "")
         .eq("import_id", importId);
       if (rowUpdateError) {
         setError(rowUpdateError.message);
@@ -1820,7 +1881,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
           },
         })
         .eq("id", importId)
-        .eq("user_id", user.id);
+        .eq("store_id", store?.id ?? "");
       if (importUpdateError) {
         setError(importUpdateError.message);
         throw importUpdateError;
@@ -1828,11 +1889,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [data.imports, refresh, user],
+    [data.imports, refresh, requireAction, store?.id, user],
   );
 
   const savePosColumnMapping = useCallback(
     async (posKey: PosSystemKey, templateName: string, mapping: PosMapping, id?: string) => {
+      requireAction("manage_imports");
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
         throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
@@ -1842,12 +1904,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       if (!activeUser) {
         throw new Error("You must be signed in before saving POS mappings.");
       }
-      let activeStore = store?.user_id === activeUser.id ? store : null;
+      let activeStore = store;
       if (!activeStore) {
         const { data: stores, error: storesError } = await supabase
           .from("stores")
           .select("*")
-          .eq("user_id", activeUser.id)
           .order("created_at", { ascending: true });
         if (storesError) throw storesError;
         activeStore = (stores?.[0] as Store | undefined) ?? null;
@@ -1880,7 +1941,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       };
 
       const result = id
-        ? await supabase.from("pos_column_mappings").update(payload).eq("id", id).eq("user_id", activeUser.id)
+        ? await supabase.from("pos_column_mappings").update(payload).eq("id", id).eq("store_id", activeStore.id)
         : await supabase
           .from("pos_column_mappings")
           .upsert(payload, { onConflict: "user_id,store_id,pos_key,template_name" });
@@ -1892,7 +1953,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const savePosImport = useCallback(
@@ -1917,6 +1978,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       duplicateStrategy: "skip" | "overwrite";
       rows: PosPreviewRow[];
     }) => {
+      requireAction("manage_imports");
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
         throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
@@ -1926,12 +1988,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       if (!activeUser) {
         throw new Error("You must be signed in before saving POS imports.");
       }
-      let activeStore = store?.user_id === activeUser.id ? store : null;
+      let activeStore = store;
       if (!activeStore) {
         const { data: stores, error: storesError } = await supabase
           .from("stores")
           .select("*")
-          .eq("user_id", activeUser.id)
           .order("created_at", { ascending: true });
         if (storesError) throw storesError;
         activeStore = (stores?.[0] as Store | undefined) ?? null;
@@ -1970,7 +2031,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const { data: existingDuplicateRows, error: duplicateLookupError } = await supabase
         .from("pos_import_rows")
         .select("duplicate_key")
-        .eq("user_id", activeUser.id)
         .eq("store_id", activeStore.id)
         .eq("pos_key", posKey)
         .in("duplicate_key", candidateDuplicateKeys);
@@ -1996,7 +2056,6 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         const { error: deleteError } = await supabase
           .from("pos_import_rows")
           .delete()
-          .eq("user_id", activeUser.id)
           .eq("store_id", activeStore.id)
           .eq("pos_key", posKey)
           .in("duplicate_key", duplicateKeysToDelete);
@@ -2054,7 +2113,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const updateProfile = useCallback(
@@ -2108,6 +2167,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
   const updateStore = useCallback(
     async (payload: Partial<Omit<Store, "id" | "user_id">>) => {
+      requireAction("manage_settings");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user || !store) {
         throw new Error("You must be signed in to update store settings.");
@@ -2116,8 +2176,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       const { error: updateError } = await supabase
         .from("stores")
         .update(payload)
-        .eq("id", store.id)
-        .eq("user_id", user.id);
+        .eq("id", store.id);
 
       if (updateError) {
         setError(updateError.message);
@@ -2126,11 +2185,12 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
 
       await refresh();
     },
-    [refresh, store, user],
+    [refresh, requireAction, store, user],
   );
 
   const createStore = useCallback(
     async (payload: Partial<Omit<Store, "id" | "user_id">>) => {
+      requireAction("manage_settings");
       const supabase = getSupabaseBrowserClient();
       if (!supabase || !user) {
         throw new Error("You must be signed in to create a store.");
@@ -2159,6 +2219,13 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       }
 
       if (newStore?.id) {
+        await supabase.from("store_members").upsert({
+          user_id: user.id,
+          store_id: newStore.id,
+          role: "owner",
+          invited_email: user.email ?? null,
+          accepted_at: new Date().toISOString(),
+        }, { onConflict: "user_id,store_id" });
         const { error: selectionError } = await supabase
           .from("users")
           .update({ selected_store_id: newStore.id })
@@ -2175,10 +2242,11 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
         setProfile((current) => current ? { ...current, selected_store_id: createdStore.id } : current);
       }
     },
-    [user],
+    [requireAction, user],
   );
 
   const saveDefaultMargins = useCallback(async () => {
+    requireAction("manage_settings");
     const supabase = getSupabaseBrowserClient();
     if (!supabase || !user || !store) {
       throw new Error("Select a store before saving margin settings.");
@@ -2201,9 +2269,10 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     await refresh();
-  }, [refresh, store, user]);
+  }, [refresh, requireAction, store, user]);
 
   const seedSampleData = useCallback(async () => {
+    requireAction("manage_settings");
     const supabase = getSupabaseBrowserClient();
     if (!supabase || !user || !store) {
       throw new Error("Select a store before adding sample data.");
@@ -2236,12 +2305,56 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
     }
 
     await refresh();
-  }, [data, refresh, saveDefaultMargins, store, user]);
+  }, [data, refresh, requireAction, saveDefaultMargins, store, user]);
+
+  const inviteStoreMember = useCallback(async (email: string, memberRole: UserRole) => {
+    requireAction("manage_members");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !user || !store) throw new Error("Select a store before inviting members.");
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) throw new Error("Enter a valid email address.");
+    const { error: inviteError } = await supabase.from("store_members").insert({
+      user_id: null,
+      store_id: store.id,
+      role: memberRole,
+      invited_email: normalizedEmail,
+      accepted_at: null,
+    });
+    if (inviteError) throw inviteError;
+    await refresh();
+  }, [refresh, requireAction, store, user]);
+
+  const updateStoreMemberRole = useCallback(async (id: string, memberRole: UserRole) => {
+    requireAction("manage_members");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !store) throw new Error("Select a store before updating members.");
+    const member = data.store_members.find((row) => row.id === id);
+    if (!member) throw new Error("Store member was not found.");
+    if (member.user_id === store.user_id && memberRole !== "owner") throw new Error("The primary store owner cannot be demoted.");
+    const { error: updateError } = await supabase.from("store_members").update({ role: memberRole }).eq("id", id).eq("store_id", store.id);
+    if (updateError) throw updateError;
+    await refresh();
+  }, [data.store_members, refresh, requireAction, store]);
+
+  const removeStoreMember = useCallback(async (id: string) => {
+    requireAction("manage_members");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !store) throw new Error("Select a store before removing members.");
+    const member = data.store_members.find((row) => row.id === id);
+    if (!member) throw new Error("Store member was not found.");
+    if (member.user_id === store.user_id) throw new Error("The primary store owner cannot be removed.");
+    const owners = data.store_members.filter((row) => row.role === "owner" && row.accepted_at);
+    if (member.role === "owner" && owners.length <= 1) throw new Error("The last owner cannot be removed.");
+    const { error: deleteError } = await supabase.from("store_members").delete().eq("id", id).eq("store_id", store.id);
+    if (deleteError) throw deleteError;
+    await refresh();
+  }, [data.store_members, refresh, requireAction, store]);
 
   const value = useMemo<CommandCenterContextValue>(
     () => ({
       user,
       profile,
+      role,
       store,
       stores,
       data,
@@ -2270,6 +2383,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveInventoryAdjustment,
       saveDefaultMargins,
       seedSampleData,
+      inviteStoreMember,
+      updateStoreMemberRole,
+      removeStoreMember,
     }),
     [
       cancelPurchaseOrder,
@@ -2283,6 +2399,7 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       authLoading,
       loading,
       profile,
+      role,
       refresh,
       receivePurchaseOrder,
       saveEntry,
@@ -2292,6 +2409,9 @@ export function CommandCenterProvider({ children }: { children: ReactNode }) {
       saveInventoryAdjustment,
       saveDefaultMargins,
       seedSampleData,
+      inviteStoreMember,
+      updateStoreMemberRole,
+      removeStoreMember,
       saveSmartImport,
       rollbackSmartImport,
       savePosColumnMapping,

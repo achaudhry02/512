@@ -10,6 +10,8 @@ const protectedPrefixes = [
   "/vendors",
   "/expenses",
   "/cash-reconciliation",
+  "/end-of-day-close",
+  "/bank-matching",
   "/smart-import",
   "/pos-integrations",
   "/fuel",

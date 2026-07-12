@@ -131,14 +131,22 @@ export type Store = {
   city: string | null;
   state: string | null;
   zip: string | null;
+  cash_variance_threshold?: number;
+  card_mismatch_threshold?: number;
+  fuel_variance_threshold?: number;
   created_at?: string;
   updated_at?: string;
 };
 
-export type StoreMember = EntryBase & {
+export type StoreMember = {
+  id: string;
+  user_id: string | null;
+  store_id: string;
   role: UserRole;
   invited_email: string | null;
   accepted_at: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type EntryBase = {
@@ -236,6 +244,24 @@ export type CashReconciliation = EntryBase & {
   expected_ending_cash?: number;
   variance?: number;
   is_balanced?: boolean;
+};
+
+export type DailyCloseStatus = EntryBase & {
+  date: string;
+  status: "not_started" | "in_progress" | "needs_review" | "closed";
+  daily_sales_completed: boolean;
+  pos_import_completed: boolean;
+  cash_reconciliation_completed: boolean;
+  card_batch_completed: boolean;
+  lottery_completed: boolean;
+  fuel_completed: boolean;
+  bank_deposit_matched: boolean;
+  override_reason: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  reopened_at: string | null;
+  reopened_by: string | null;
+  notes: string | null;
 };
 
 export type PosSystem = EntryBase & {
@@ -454,6 +480,12 @@ export type CashFlowEntry = EntryBase & {
   vendor_name: string | null;
   description: string | null;
   amount: number;
+  matched_record_type: string | null;
+  matched_record_id: string | null;
+  match_confidence: number;
+  match_status: "unmatched" | "suggested" | "matched" | "ignored";
+  reviewed_at: string | null;
+  reviewed_by: string | null;
   notes: string | null;
 };
 
@@ -765,6 +797,7 @@ export type TableName =
   | "daily_sales"
   | "monthly_totals"
   | "cash_reconciliations"
+  | "daily_close_statuses"
   | "expenses"
   | "fuel_entries"
   | "fuel_grades"
@@ -783,6 +816,7 @@ export type TableRowMap = {
   daily_sales: DailySale;
   monthly_totals: MonthlyTotal;
   cash_reconciliations: CashReconciliation;
+  daily_close_statuses: DailyCloseStatus;
   expenses: Expense;
   fuel_entries: FuelEntry;
   fuel_grades: FuelGrade;
@@ -806,6 +840,8 @@ export type CommandCenterData = {
   daily_sales: DailySale[];
   monthly_totals: MonthlyTotal[];
   cash_reconciliations: CashReconciliation[];
+  daily_close_statuses: DailyCloseStatus[];
+  store_members: StoreMember[];
   expenses: Expense[];
   fuel_entries: FuelEntry[];
   fuel_grades: FuelGrade[];

@@ -4,8 +4,12 @@ import JSZip from "jszip";
 import { chromium } from "playwright";
 
 const baseUrl = process.env.REPORT_TEST_BASE_URL ?? "http://localhost:3000";
-const email = process.env.REPORT_TEST_EMAIL ?? process.env.POS_TEST_EMAIL ?? "codex.pos.tester@gmail.com";
-const password = process.env.REPORT_TEST_PASSWORD ?? process.env.POS_TEST_PASSWORD ?? "TestPass123!";
+function required(value: string | undefined, name: string) {
+  if (!value) throw new Error(`${name} is required for the reporting browser test.`);
+  return value;
+}
+const email = required(process.env.REPORT_TEST_EMAIL ?? process.env.E2E_TEST_EMAIL, "REPORT_TEST_EMAIL or E2E_TEST_EMAIL");
+const password = required(process.env.REPORT_TEST_PASSWORD ?? process.env.E2E_TEST_PASSWORD, "REPORT_TEST_PASSWORD or E2E_TEST_PASSWORD");
 const headed = process.env.REPORT_TEST_HEADED === "1";
 
 function isoDate(date: Date) {

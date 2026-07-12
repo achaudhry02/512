@@ -23,8 +23,8 @@ function required(value: string | undefined, name: string) {
 loadLocalEnv();
 
 const baseUrl = process.env.E2E_TEST_BASE_URL ?? "http://localhost:3000";
-const email = process.env.E2E_TEST_EMAIL ?? process.env.POS_TEST_EMAIL ?? "codex.pos.tester@gmail.com";
-const password = process.env.E2E_TEST_PASSWORD ?? process.env.POS_TEST_PASSWORD ?? "TestPass123!";
+const email = required(process.env.E2E_TEST_EMAIL ?? process.env.POS_TEST_EMAIL, "E2E_TEST_EMAIL or POS_TEST_EMAIL");
+const password = required(process.env.E2E_TEST_PASSWORD ?? process.env.POS_TEST_PASSWORD, "E2E_TEST_PASSWORD or POS_TEST_PASSWORD");
 const headless = process.env.E2E_TEST_HEADED !== "1";
 const supabaseUrl = required(process.env.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL");
 const publicKey = required(
@@ -116,7 +116,10 @@ async function main() {
     await waitForWorkspace(page);
     await page.getByLabel("New store").fill(storeName);
     await page.getByRole("button", { name: "Create store" }).click();
-    await page.getByText("Store created and selected.", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
+    const storeCreated = page.getByText("Store created and selected.", { exact: true });
+    const storeErrorBanner = page.locator("main .border-red-200");
+    await storeCreated.or(storeErrorBanner).waitFor({ state: "visible", timeout: 20_000 });
+    assert.equal(await storeCreated.isVisible(), true, `store creation failed: ${await storeErrorBanner.allTextContents()}`);
     const { data: testStore, error: storeError } = await cleanupClient.from("stores").select("id").eq("user_id", userId).eq("name", storeName).single();
     if (storeError) throw storeError;
     testStoreId = testStore.id as string;
@@ -178,6 +181,23 @@ async function main() {
     await page.getByText(path.basename(smartFile), { exact: true }).waitFor({ state: "visible" });
     await page.getByRole("button", { name: "Confirm Import" }).click();
     await page.getByText("Import confirmed. Rows were saved to the selected destinations.", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
+    const { data: importedProduct, error: importedProductError } = await cleanupClient
+      .from("products")
+      .select("id,quantity_on_hand")
+      .eq("store_id", testStoreId)
+      .eq("sku_upc", `PHASE10-${suffix}`)
+      .single();
+    if (importedProductError) throw importedProductError;
+    const importHistoryRow = page.getByRole("row").filter({ hasText: path.basename(smartFile) });
+    await importHistoryRow.getByRole("button", { name: "Roll back" }).click();
+    await page.getByText("Import rolled back. Posted rows were removed and the audit record was kept.", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
+    const { data: rolledBackProduct, error: rolledBackProductError } = await cleanupClient
+      .from("products")
+      .select("quantity_on_hand")
+      .eq("id", importedProduct.id)
+      .single();
+    if (rolledBackProductError) throw rolledBackProductError;
+    assert.equal(rolledBackProduct.quantity_on_hand, importedProduct.quantity_on_hand + 4, "Smart Import rollback should reverse the product sale inventory deduction");
 
     await page.goto(`${baseUrl}/cash-reconciliation`);
     await waitForWorkspace(page);
@@ -190,11 +210,33 @@ async function main() {
     await page.getByRole("button", { name: "Save reconciliation" }).click();
     await page.getByText("Cash reconciliation saved.", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
 
+    await page.goto(`${baseUrl}/end-of-day-close`);
+    await waitForWorkspace(page);
+    await waitForSelectedStore(page, testStoreId);
+    await page.getByLabel("Close date").fill(dailyDate);
+    await page.getByRole("heading", { name: "End-of-Day Close" }).waitFor({ state: "visible" });
+    await page.getByLabel("Override reason").fill("E2E override: lottery and bank review remain pending.");
+    await page.getByLabel("Notes").fill(`Phase 10 close ${suffix}`);
+    await page.getByText("Lottery not applicable", { exact: true }).click();
+    await page.getByText("Bank deposit pending", { exact: true }).click();
+    await page.getByRole("button", { name: "Close Day" }).click();
+    const closeResponse = page.locator("section").filter({ hasText: "Review and close" }).locator("p.mt-4.text-sm.font-bold");
+    await closeResponse.waitFor({ state: "visible", timeout: 20_000 });
+    assert.equal(await closeResponse.innerText(), "Business day closed.", "close submission should succeed");
+    await page.getByRole("button", { name: "Reopen Day" }).click();
+    await page.getByText("Business day reopened.", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
+
+    await page.goto(`${baseUrl}/bank-matching`);
+    await waitForWorkspace(page);
+    await waitForSelectedStore(page, testStoreId);
+    await page.getByRole("heading", { name: "Bank Matching" }).waitFor({ state: "visible" });
+
     await page.goto(`${baseUrl}/reports`);
     await waitForWorkspace(page);
     await waitForSelectedStore(page, testStoreId);
     await page.getByLabel("Report start date").fill("2098-02-01");
     await page.getByLabel("Report end date").fill(dailyDate);
+    await page.getByText("P&L confidence", { exact: true }).first().waitFor({ state: "visible" });
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "CSV" }).click();
     const download = await downloadPromise;

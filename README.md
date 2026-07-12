@@ -14,8 +14,8 @@ A full-stack Next.js dashboard for convenience store owners to track daily sales
 ## Features
 
 - Supabase login, signup, password reset, email verification handling, and server-side protected routes
-- Row-level security so each user only sees their own store data
-- Role-ready profile/store structure for owner, manager, employee, and accountant access
+- Store-member row-level security with owner, manager, employee, and accountant access
+- Route, action, and database permission enforcement by active-store role
 - Multi-store switcher with create/edit store settings
 - First-run Setup Guide with store details, recommended margins, POS selection, first-entry choices, vendors, fuel grades, employees, templates, and idempotent sample data
 - Owner workflow home with persistent morning, end-of-day, weekly review, and month-end close checklists
@@ -121,24 +121,28 @@ This repo includes:
 ## Supabase setup
 
 1. Create a Supabase project.
-2. In the Supabase SQL editor, run `supabase/schema.sql`.
+2. In the Supabase SQL editor, run `supabase/schema.sql` for a fresh full install. A fresh database may instead apply all files in `supabase/migrations/` in numeric order.
 3. In Authentication settings, enable email/password auth.
 4. Copy your project URL and anon key into `.env.local`.
 5. Start the app and sign up.
 
 The app automatically creates a profile in `public.users` and a default store for each authenticated user.
 
-Re-run `supabase/schema.sql` after pulling schema changes. The schema uses repeatable `if not exists` statements and replaces policies/triggers safely so an existing project can be upgraded in place.
+For an existing Phase 7+ database, apply `supabase/migrations/011_phase11_release_candidate.sql`, then `supabase/migrations/012_phase11_performance_hardening.sql`. They safely add the remaining release objects, least-privilege grants, membership RLS, shared-store inventory RPC authorization, optimized membership policies, and foreign-key indexes without resetting data. Earlier databases should apply `001_initial_schema.sql` through `012_phase11_performance_hardening.sql` in numeric order, skipping versions already represented in that database.
+
+To verify installation, use the Supabase Table Editor or SQL editor to confirm `daily_close_statuses`, `store_members`, and the new `cash_flow_entries.match_status` column exist. Then run `npm run test:rls`; run `npm run test:rls-live` only after the service-role environment variable is configured.
 
 For an existing Phase 7 database, `supabase/phase10-trigger-fix.sql` is also available as a focused upgrade. It prevents store deletion cascades from creating inventory reversal rows against a store that is already being removed. Running the full schema applies the same fix.
 
 ### Auth, roles, and multi-store setup
 
-The app uses Supabase SSR middleware to protect `/dashboard`, `/onboarding`, `/daily-sales`, `/bulk-entry`, `/inventory`, `/vendors`, `/expenses`, `/cash-reconciliation`, `/smart-import`, `/pos-integrations`, `/fuel`, `/lottery`, `/deli`, `/payroll`, `/employees`, `/reports`, and `/settings`. Unauthenticated users are redirected to `/login` before protected pages render.
+The app uses Supabase SSR middleware to protect authenticated routes. `AppShell` then applies active-store page guards, and provider mutations apply action guards before writes. Supabase RLS remains the authoritative database boundary.
 
 `supabase/schema.sql` adds `users.role`, `users.selected_store_id`, and `store_members`.
 
-Roles are stored as `owner`, `manager`, `employee`, or `accountant` so stricter permissions can be layered in without changing the profile model. Store owners can create additional stores from Settings and switch the active store from the sidebar.
+Roles are stored per store membership as `owner`, `manager`, `employee`, or `accountant`. Owners have full access. Managers can run operations, imports, inventory, reconciliation, close, and reporting but cannot manage members or owner settings. Employees can enter daily sales but cannot access P&L, payroll, vendor spend, reports, exports, or settings. Accountants have read-only access to reports, expenses, payroll, cash flow, and reconciliation history. Owners manage invitations and roles under Settings -> Members; the primary owner cannot be removed or demoted.
+
+RLS resolves access through `is_store_member`, `current_store_role`, `can_manage_store`, `can_edit_operations`, and `can_view_financials`. Shared data queries use `store_id`; `user_id` remains creator/owner metadata and is no longer the sole access condition.
 
 ### Onboarding and owner workflow
 
@@ -249,6 +253,7 @@ The schema creates:
 - `daily_sales`
 - `monthly_totals`
 - `cash_reconciliations`
+- `daily_close_statuses`
 - `expenses`
 - `fuel_entries`
 - `fuel_grades`
@@ -281,7 +286,23 @@ The schema creates:
 
 `products` stores quantity on hand, reorder level, cost, retail price, and notes. `vendors` stores supplier contacts and weekly spend estimates. `employees` stores the staff roster and standard rates; payroll history remains in `payroll_entries`.
 
-All store-owned tables include `user_id` and `store_id`, plus row-level security policies using `auth.uid() = user_id`.
+Store-owned tables include `user_id` and `store_id`. RLS checks accepted `store_members` membership and role against `store_id`; non-members are blocked.
+
+## End-of-Day Close
+
+Open `/end-of-day-close` as an owner or manager. Select the business date and review inside sales, fuel, lottery, expected/actual cash, cash over/short, card batches, bank deposit, and missing steps. Close requires sales or POS data, cash reconciliation, fuel data when active grades exist, lottery entry or not-applicable confirmation, and a matched or pending deposit. Variances use the store thresholds configured in Settings. A reason is mandatory when closing with missing controls or out-of-threshold variances. Only an owner can reopen a closed day.
+
+Close status is stored separately in `daily_close_statuses`; closing does not modify source sales, POS, fuel, lottery, or reconciliation rows. Dashboard, Reports, and accountant ZIP exports show close coverage.
+
+## Bank Matching
+
+Open `/bank-matching` to review imported `cash_flow_entries`. The suggestion engine matches cash deposits to cash reconciliations, card processor deposits to card batches, vendor ACH rows to expenses, and payroll withdrawals to payroll periods. Owners/managers can approve, reject, manually link, ignore, or classify rows as loan payments, owner draws, or transfers. Accountant access is read-only. Non-operating classifications remain separate from operating P&L.
+
+Each row stores match type/id, confidence, status, reviewer, and review time. End-of-Day Close uses matched cash deposits, and Reports/accountant exports include match state.
+
+## P&L Confidence
+
+`src/lib/pnl-confidence.ts` scores report completeness from 0-100 using closed-day coverage, cash reconciliation, card/bank matching, expense review, fuel reconciliation, product cost coverage, and whether estimates are included. Labels are High confidence, Medium confidence, Low confidence, or Needs review. The score and specific missing items appear on Dashboard, Reports, End-of-Day Close, summary CSV, and accountant ZIP README. It does not convert estimated values into actual values; existing actual/estimated/mixed labels remain visible.
 
 ## Inventory Operations
 
@@ -454,21 +475,7 @@ POS reports include:
 
 ### Authenticated POS browser test
 
-For local POS import testing, create the demo browser-test account in your development Supabase project:
-
-```sql
--- Run in the Supabase SQL editor after supabase/schema.sql.
-\i supabase/test-account.sql
-```
-
-If your SQL editor does not support `\i`, open `supabase/test-account.sql`, paste the file contents, and run it.
-
-Default test login:
-
-```text
-Email: codex.pos.tester@gmail.com
-Password: TestPass123!
-```
+For local POS import testing, create a disposable confirmed account in Supabase Authentication. Store its credentials only in `.env.local` or CI secrets; no predictable browser-test password is committed. `supabase/test-account.sql` documents this setup without creating credentials.
 
 Install Playwright's Chromium browser once:
 
@@ -503,7 +510,7 @@ npm run test
 npm run build
 ```
 
-`npm run test` covers financial calculations, configurable margins, detailed P&L, cash and fuel reconciliation, Smart Import parsing/classification, POS duplicate skip/overwrite planning, Sunoco parsers, and a static audit of RLS enablement, ownership policies, grants, and update checks for every public table.
+`npm run test` covers financial calculations, End-of-Day Close rules, bank suggestions, P&L confidence, role permissions, Smart Import parsing/classification, POS duplicate handling, Sunoco parsers, migrations, and a static store-membership RLS audit.
 
 Run live two-user Supabase isolation checks separately:
 
@@ -511,7 +518,7 @@ Run live two-user Supabase isolation checks separately:
 npm run test:rls-live
 ```
 
-This requires `NEXT_PUBLIC_SUPABASE_URL`, a publishable or anon key, and `SUPABASE_SERVICE_ROLE_KEY`. It creates two confirmed temporary users, proves cross-user reads/writes are blocked, verifies anonymous reads are empty, and removes the test data and users.
+This requires `NEXT_PUBLIC_SUPABASE_URL`, a publishable or anon key, and `SUPABASE_SERVICE_ROLE_KEY`. It creates temporary owner, manager, employee, accountant, and non-member users; verifies role-specific read/write behavior; and removes the test data and users.
 
 With the app running and the browser-test account available, run the isolated critical workflow:
 
@@ -520,7 +527,7 @@ npm run dev
 npm run test:e2e
 ```
 
-The browser test verifies login and signup mode, creates a temporary store, saves Daily Entry and Bulk Daily Entry data, imports generic POS and Smart Import CSV files, saves cash reconciliation, downloads a report CSV, and deletes the temporary store. Override credentials with `E2E_TEST_EMAIL`, `E2E_TEST_PASSWORD`, `E2E_TEST_BASE_URL`, or set `E2E_TEST_HEADED=1`.
+The browser test verifies login, creates a temporary store, saves Daily and Bulk Entry data, imports generic POS and Smart Import CSV files, rolls back Smart Import and verifies inventory restoration, saves cash reconciliation, closes and reopens a day, opens Bank Matching, verifies P&L confidence, downloads a report CSV, and deletes the temporary store. Configure `E2E_TEST_EMAIL`, `E2E_TEST_PASSWORD`, and optionally `E2E_TEST_BASE_URL` or `E2E_TEST_HEADED=1`.
 
 GitHub Actions always runs lint, typecheck, tests, and build. To enable its authenticated integration job, configure these repository secrets:
 
@@ -584,7 +591,7 @@ Open `Reports` to create owner and accountant-ready reports for the active store
 - including or excluding category-margin estimates
 - summary CSV export
 - printable PDF export
-- an accountant ZIP package with P&L, weekly P&L, expenses, cash flow, payroll, vendor spend, inventory value, category profitability, cash reconciliation, fuel-by-grade, lottery/deli, and import-history CSV files
+- an accountant ZIP package with P&L, weekly P&L, expenses, cash flow and match state, close status, payroll, vendor spend, inventory value, category profitability, cash reconciliation, fuel-by-grade, lottery/deli, and import-history CSV files
 
 The detailed operating P&L separates owner draws, loan payments, and transfers from operating expenses. Payroll expense rows and payroll tracker entries are combined once in the payroll line. Monthly Totals records replace daily/POS records for the same covered month to prevent duplicate sales.
 
@@ -596,6 +603,7 @@ With the local app running and the browser-test account created, run the authent
 
 ```bash
 npm run test:reports-browser
+npm run test:inventory-live
 ```
 
 The test signs in through the UI, verifies the store and date controls, switches estimated values off and on, checks every major report section, validates CSV/PDF/ZIP downloads, and checks the mobile viewport. Override the defaults with `REPORT_TEST_BASE_URL`, `REPORT_TEST_EMAIL`, `REPORT_TEST_PASSWORD`, or `REPORT_TEST_HEADED=1`.
@@ -694,6 +702,26 @@ Electron details:
 - Offline mode: the desktop shell can launch locally, but authentication and persisted business data require the configured Supabase project
 
 ## Production Checks
+
+### Phase 10 manual QA checklist
+
+- Apply migrations 011 and 012, then verify the three store variance thresholds in Settings.
+- Sign in as an owner, invite manager/employee/accountant accounts, accept each invitation by signing in with the invited email, and verify sidebar/page visibility.
+- Confirm manager operational writes succeed, employee access is limited to Daily Sales, accountant financial pages are read-only, and a non-member cannot query the store.
+- Save daily/POS, cash, fuel, lottery, and bank-deposit data; close the day without an override when all controls pass.
+- Create cash/card/fuel mismatches, verify close requires an override reason, close with a reason, and verify only the owner sees Reopen Day.
+- Import a bank statement, approve/reject/manual-match rows, classify loan/owner draw/transfer rows, and verify Reports excludes them from operating expenses.
+- Compare Dashboard, Reports, summary CSV, PDF, and accountant ZIP values and confirm actual/estimated/mixed labels remain accurate.
+- Check desktop and mobile layouts for close, bank tables, member controls, and report cards.
+- Run `npm run lint`, `npm run typecheck`, `npm run test`, and `npm run build`; run live RLS/E2E tests when required secrets and a migrated test project are available.
+
+Known limitations: bank suggestions use deterministic date/amount/vendor heuristics rather than bank-feed settlement APIs; employee close assignment is not modeled, so the close page is limited to owner/manager; invitations are email claims rather than outbound email delivery; and P&L confidence measures completeness, not audit assurance. Live RLS and browser tests require a disposable migrated Supabase project plus service-role/test credentials.
+
+### Backup and restore
+
+Before applying a release migration, confirm Supabase automated backups are enabled and record the latest successful backup time. For a separate logical backup, use a current Supabase CLI with `supabase db dump --linked --file backup-before-release.sql`, or use `pg_dump` with the database connection string. Keep backups encrypted and outside the repository.
+
+Restore into a disposable project first, apply migrations through `012_phase11_performance_hardening.sql`, and run the live RLS and browser suites. Do not rehearse destructive restore operations against production. See `docs/PHASE11_RELEASE_AUDIT.md` for the completion matrix and acceptance checklist.
 
 Before deploying:
 

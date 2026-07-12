@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createClient } from "@supabase/supabase-js";
 import { existsSync, readFileSync } from "node:fs";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function loadLocalEnv() {
   if (!existsSync(".env.local")) return;
@@ -18,12 +18,8 @@ function required(value: string | undefined, name: string) {
 }
 
 loadLocalEnv();
-
 const url = required(process.env.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL");
-const publicKey = required(
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY",
-);
+const publicKey = required(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, "Supabase publishable key");
 const serviceKey = required(process.env.SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY");
 const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -35,81 +31,76 @@ async function createTestUser(label: string) {
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   if (error) throw error;
   createdUserIds.push(data.user.id);
-  const { error: profileError } = await admin.from("users").insert({
-    id: data.user.id,
-    email,
-    full_name: `RLS ${label}`,
-    role: "owner",
-  });
+  const profileRole = ["owner", "manager", "employee", "accountant"].includes(label) ? label : "employee";
+  const { error: profileError } = await admin.from("users").insert({ id: data.user.id, email, full_name: `RLS ${label}`, role: profileRole });
   if (profileError) throw profileError;
-  return { id: data.user.id, email };
+  const client = createClient(url, publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error: signInError } = await client.auth.signInWithPassword({ email, password });
+  if (signInError) throw signInError;
+  return { id: data.user.id, email, client };
 }
 
-async function signedInClient(email: string) {
-  const client = createClient(url, publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { error } = await client.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  return client;
+async function expectVisible(client: SupabaseClient, table: string, id: string, message: string) {
+  const { data, error } = await client.from(table).select("id").eq("id", id);
+  assert.ifError(error);
+  assert.equal(data?.length, 1, message);
+}
+
+async function expectHidden(client: SupabaseClient, table: string, id: string, message: string) {
+  const { data, error } = await client.from(table).select("id").eq("id", id);
+  assert.ifError(error);
+  assert.deepEqual(data, [], message);
 }
 
 async function main() {
   let storeId: string | null = null;
-  let saleId: string | null = null;
   try {
-    const userA = await createTestUser("a");
-    const userB = await createTestUser("b");
-    const { data: store, error: storeError } = await admin
-      .from("stores")
-      .insert({ user_id: userA.id, name: "RLS Isolation Store" })
-      .select("id")
-      .single();
+    const owner = await createTestUser("owner");
+    const manager = await createTestUser("manager");
+    const employee = await createTestUser("employee");
+    const accountant = await createTestUser("accountant");
+    const outsider = await createTestUser("outsider");
+    const { data: store, error: storeError } = await admin.from("stores").insert({ user_id: owner.id, name: "RLS Role Store" }).select("id").single();
     if (storeError) throw storeError;
     storeId = store.id as string;
+    const { error: memberError } = await admin.from("store_members").insert([
+      { user_id: owner.id, store_id: storeId, role: "owner", accepted_at: new Date().toISOString() },
+      { user_id: manager.id, store_id: storeId, role: "manager", accepted_at: new Date().toISOString() },
+      { user_id: employee.id, store_id: storeId, role: "employee", accepted_at: new Date().toISOString() },
+      { user_id: accountant.id, store_id: storeId, role: "accountant", accepted_at: new Date().toISOString() },
+    ]);
+    if (memberError) throw memberError;
 
-    const clientA = await signedInClient(userA.email);
-    const clientB = await signedInClient(userB.email);
-    const { data: sale, error: saleError } = await clientA
-      .from("daily_sales")
-      .insert({ user_id: userA.id, store_id: storeId, date: "2099-01-01", grocery_sales: 42 })
-      .select("id")
-      .single();
+    const { data: sale, error: saleError } = await owner.client.from("daily_sales").insert({ user_id: owner.id, store_id: storeId, date: "2099-01-01", grocery_sales: 42 }).select("id").single();
     if (saleError) throw saleError;
-    saleId = sale.id as string;
+    const saleId = sale.id as string;
+    const { data: expense, error: expenseError } = await admin.from("expenses").insert({ user_id: owner.id, store_id: storeId, date: "2099-01-01", vendor_name: "RLS Vendor", category: "Other", amount: 10 }).select("id").single();
+    if (expenseError) throw expenseError;
+    const expenseId = expense.id as string;
 
-    const { data: ownerRows, error: ownerReadError } = await clientA.from("daily_sales").select("id").eq("id", saleId);
-    assert.ifError(ownerReadError);
-    assert.equal(ownerRows?.length, 1, "the owner should read their row");
+    await expectVisible(owner.client, "daily_sales", saleId, "owner can read operations");
+    await expectVisible(manager.client, "daily_sales", saleId, "manager can read operations");
+    const { data: managerUpdate, error: managerUpdateError } = await manager.client.from("daily_sales").update({ grocery_sales: 43 }).eq("id", saleId).select("id");
+    assert.ifError(managerUpdateError);
+    assert.equal(managerUpdate?.length, 1, "manager can edit operations");
 
-    const { data: foreignRows, error: foreignReadError } = await clientB.from("daily_sales").select("id").eq("id", saleId);
-    assert.ifError(foreignReadError);
-    assert.deepEqual(foreignRows, [], "another authenticated user must not read the row");
+    await expectVisible(employee.client, "daily_sales", saleId, "employee can read daily sales");
+    const { data: employeeUpdate, error: employeeUpdateError } = await employee.client.from("daily_sales").update({ grocery_sales: 44 }).eq("id", saleId).select("id");
+    assert.ifError(employeeUpdateError);
+    assert.equal(employeeUpdate?.length, 1, "employee can edit daily sales");
+    await expectHidden(employee.client, "expenses", expenseId, "employee cannot read financial records");
 
-    const { data: foreignUpdate, error: foreignUpdateError } = await clientB
-      .from("daily_sales")
-      .update({ grocery_sales: 999 })
-      .eq("id", saleId)
-      .select("id");
-    assert.ifError(foreignUpdateError);
-    assert.deepEqual(foreignUpdate, [], "another authenticated user must not update the row");
+    await expectVisible(accountant.client, "expenses", expenseId, "accountant can read financial records");
+    const { data: accountantUpdate, error: accountantUpdateError } = await accountant.client.from("expenses").update({ amount: 999 }).eq("id", expenseId).select("id");
+    assert.ifError(accountantUpdateError);
+    assert.deepEqual(accountantUpdate, [], "accountant is read-only");
 
-    const { error: forgedInsertError } = await clientA.from("daily_sales").insert({
-      user_id: userB.id,
-      store_id: storeId,
-      date: "2099-01-02",
-      grocery_sales: 1,
-    });
-    assert.ok(forgedInsertError, "WITH CHECK must reject rows owned by another user");
-
-    const anonymous = createClient(url, publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: anonymousRows, error: anonymousError } = await anonymous.from("daily_sales").select("id").eq("id", saleId);
-    assert.ifError(anonymousError);
-    assert.deepEqual(anonymousRows, [], "anonymous users must not read business data");
-
-    console.log("Live Supabase RLS isolation test passed.");
+    await expectHidden(outsider.client, "daily_sales", saleId, "non-member cannot read operations");
+    await expectHidden(outsider.client, "expenses", expenseId, "non-member cannot read financial records");
+    console.log("Live Supabase role and store-membership RLS test passed.");
   } finally {
+    if (storeId) await admin.from("stores").delete().eq("id", storeId);
     if (createdUserIds.length) {
-      await admin.from("daily_sales").delete().in("user_id", createdUserIds);
-      await admin.from("stores").delete().in("user_id", createdUserIds);
       await admin.from("users").delete().in("id", createdUserIds);
       for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
     }

@@ -9,6 +9,7 @@ import {
   Command,
   Fuel,
   LayoutDashboard,
+  Landmark,
   ListChecks,
   LogOut,
   Menu,
@@ -33,6 +34,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useCommandCenter } from "@/lib/data-provider";
 import { ContextHelp } from "@/components/context-help";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { canViewPage } from "@/lib/permissions";
+import { devInfo } from "@/lib/dev-log";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -44,6 +47,8 @@ const navItems = [
   { href: "/vendors", label: "Vendors", icon: Truck },
   { href: "/expenses", label: "Expenses", icon: ReceiptText },
   { href: "/cash-reconciliation", label: "Cash Reconciliation", icon: WalletCards },
+  { href: "/end-of-day-close", label: "End-of-Day Close", icon: ListChecks },
+  { href: "/bank-matching", label: "Bank Matching", icon: Landmark },
   { href: "/smart-import", label: "Smart Import", icon: ScanLine },
   { href: "/pos-integrations", label: "POS Integrations", icon: PlugZap },
   { href: "/fuel", label: "Fuel Tracking", icon: Fuel },
@@ -59,12 +64,12 @@ const navItems = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { error, loading, profile, selectStore, store, stores, user } = useCommandCenter();
+  const { error, loading, profile, role, selectStore, store, stores, user } = useCommandCenter();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
-      console.info("[auth] protected route redirect to /login", {
+      devInfo("[auth] protected route redirect to /login", {
         pathname,
         loading,
         hasUser: Boolean(user),
@@ -124,7 +129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Convenience Store Command Center
             </h1>
             <p className="mt-2 truncate text-sm text-slate-400">
-              {store?.name ?? "Store dashboard"} · Profit operations
+              {store?.name ?? "Store dashboard"} | Profit operations
             </p>
           </div>
           <button
@@ -157,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ))}
               </select>
               <p className="mt-1 text-xs text-slate-400">
-                {profile?.role ? `${profile.role} access` : "Live Supabase workspace"}
+                {role ? `${role} access` : "Live Supabase workspace"}
               </p>
             </div>
             <ChevronDown className="pointer-events-none -ml-8 h-4 w-4 text-slate-500" />
@@ -165,7 +170,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="relative flex-1 space-y-1 overflow-y-auto pr-1">
-          {navItems.map((item) => {
+          {navItems.filter((item) => canViewPage(role, item.href)).map((item) => {
             const active = pathname === item.href;
             const Icon = item.icon;
 
@@ -261,7 +266,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               {error}
             </div>
           ) : null}
-          {children}
+          {canViewPage(role, pathname) ? children : (
+            <section className="rounded-lg border border-rose-200 bg-white p-8 shadow-card">
+              <p className="text-xs font-black uppercase text-rose-700">Access restricted</p>
+              <h2 className="mt-2 text-2xl font-black text-slate-950">This page is not available to the {role} role.</h2>
+              <p className="mt-3 text-sm font-medium text-slate-600">Choose an authorized page or ask a store owner to update your membership.</p>
+            </section>
+          )}
         </div>
       </main>
     </div>
