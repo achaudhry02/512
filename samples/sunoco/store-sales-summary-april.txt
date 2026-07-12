@@ -1,0 +1,20 @@
+Store Sales Summary Report
+Report Period: 04/01/2026 - 04/30/2026
+Fuel Sales
+Total Fuel Sales Volume 17,318.250
+Total Fuel Sales $72,214.67
+Fuel Discounts -$105.21
+Total Non Fuel Sales $75,135.55
+Other Discounts -$310.20
+Total Taxes Collected $3,458.91
+Total Sales $147,555.01
+Total Revenue $150,703.72
+Network Revenue $145,980.18
+Grade 01 REGULAR 14,320.740 $57,648.13 79.83%
+Grade 02 PLUS 1,028.060 $4,738.42 6.56%
+Grade 03 PREMIUM 1,969.450 $9,828.12 13.61%
+Store Tender Reading
+Cash -$752.14 $43,179.11
+Credit 1,122 $16,206.44
+Crind CREDIT 685 $31,017.82
+Debit 2,353 $35,355.21

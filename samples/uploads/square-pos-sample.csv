@@ -1,0 +1,3 @@
+"Date","Transaction ID","Category","Item","SKU","Qty","Gross Sales","Discounts","Refunds","Net Sales","Tax","Cash","Card","Gift Card"
+"2026-07-01","SQ-10001","Drinks","Energy Drink 16 oz","DRK-100","8","23.92","0.00","0.00","23.92","1.44","0.00","25.36","0.00"
+"2026-07-01","SQ-10002","Snacks","Chips 2 oz","SNK-200","10","18.90","1.00","0.00","17.90","1.07","10.00","8.97","0.00"

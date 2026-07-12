@@ -1,0 +1,128 @@
+{
+  "name": "convenience-store-command-center",
+  "version": "1.0.0-rc.1",
+  "description": "A Next.js command center for convenience store sales, expenses, fuel, lottery, deli, payroll, and profit tracking.",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit && npm run test:rls",
+    "test:unit": "npm run test:core && npm run test:end-of-day-close && npm run test:bank-matching && npm run test:pnl-confidence && npm run test:permissions && npm run test:smart-import && npm run test:smart-import-route && npm run test:pos-duplicates && npm run test:sunoco && npm run test:release-contract",
+    "test:core": "tsx scripts/test-core-calculations.ts",
+    "test:end-of-day-close": "tsx scripts/test-end-of-day-close.ts",
+    "test:bank-matching": "tsx scripts/test-bank-matching.ts",
+    "test:pnl-confidence": "tsx scripts/test-pnl-confidence.ts",
+    "test:permissions": "tsx scripts/test-permissions.ts",
+    "test:smart-import": "tsx scripts/test-smart-import.ts",
+    "test:smart-import-route": "tsx scripts/test-smart-import-route.ts",
+    "test:pos-duplicates": "tsx scripts/test-pos-duplicates.ts",
+    "test:rls": "tsx scripts/test-rls-policies.ts",
+    "test:rls-live": "tsx scripts/test-rls-live.ts",
+    "test:e2e": "tsx scripts/test-critical-workflows-browser.ts",
+    "test:pos-browser": "tsx scripts/test-pos-integrations-browser.ts",
+    "test:reports-browser": "tsx scripts/test-reporting-browser.ts",
+    "test:inventory-live": "tsx scripts/test-inventory-live.ts",
+    "test:sunoco": "tsx scripts/test-sunoco-parsers.ts",
+    "test:release-contract": "tsx scripts/test-release-contract.ts",
+    "seed": "tsx scripts/seed.ts",
+    "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
+    "desktop:prepare": "node scripts/prepare-electron-next.mjs",
+    "desktop:pack": "npm run build && npm run desktop:prepare && electron-builder --dir",
+    "desktop:dist": "npm run build && npm run desktop:prepare && electron-builder --win nsis"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/achaudhry02/512.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/achaudhry02/512/issues"
+  },
+  "homepage": "https://github.com/achaudhry02/512#readme",
+  "dependencies": {
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "clsx": "^2.1.1",
+    "jspdf": "4.2.1",
+    "jszip": "3.10.1",
+    "lucide-react": "^1.17.0",
+    "next": "^16.2.7",
+    "papaparse": "^5.5.3",
+    "pdf-parse": "^1.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "read-excel-file": "^9.2.0",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^25.9.2",
+    "@types/papaparse": "^5.5.2",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.7",
+    "playwright": "^1.61.1",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "wait-on": "^9.0.10"
+  },
+  "overrides": {
+    "postcss": "^8.5.15"
+  },
+  "build": {
+    "appId": "com.storecommandcenter.desktop",
+    "productName": "StoreCommandCenter",
+    "artifactName": "StoreCommandCenter-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "build/icon.ico",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      ".next/standalone/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "StoreCommandCenter"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StoreCommandCenter",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+"Order Date","Order ID","Category","Item","SKU","Quantity","Gross Sales","Discounts","Refunds","Net Sales","Taxes","Cash","Credit Card","Gift Card"
+"2026-07-01","CLV-501","Deli","Breakfast Sandwich","DL-10","14","69.86","0.00","0.00","69.86","4.19","20.00","54.05","0.00"
+"2026-07-01","CLV-502","Beer","Domestic 6 Pack","BR-22","6","59.94","0.00","0.00","59.94","3.60","0.00","63.54","0.00"

@@ -1,1 +1,780 @@
-# 512
+# Convenience Store Command Center
+
+A full-stack Next.js dashboard for convenience store owners to track daily sales, expenses, fuel, lottery, deli / hot food, payroll, and profit.
+
+## Stack
+
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- Supabase Auth + Postgres
+- Recharts
+- Electron + Electron Builder for the Windows desktop launcher
+
+## Features
+
+- Supabase login, signup, password reset, email verification handling, and server-side protected routes
+- Store-member row-level security with owner, manager, employee, and accountant access
+- Route, action, and database permission enforcement by active-store role
+- Multi-store switcher with create/edit store settings
+- First-run Setup Guide with store details, recommended margins, POS selection, first-entry choices, vendors, fuel grades, employees, templates, and idempotent sample data
+- Owner workflow home with persistent morning, end-of-day, weekly review, and month-end close checklists
+- Context-sensitive help drawer on every authenticated page, with detailed guidance for imports, reconciliation, inventory, and reports
+- Dashboard with sales, gross profit, net profit estimate, fuel profit, lottery profit, deli sales, expenses, payroll, best/worst categories, and charts
+- Add, edit, delete, and date-filter entries for:
+  - Daily sales
+  - Bulk monthly entry
+  - Expenses
+  - Fuel tracking
+  - Lottery tracking
+  - Deli / hot food tracking
+  - Payroll
+- Inventory CRUD with SKU/barcode search, category filters, margin, quantity, reorder levels, and low-stock alerts
+- Inventory Operations with scanner-friendly lookup, purchase orders, receiving, stock adjustments, reorder suggestions, dead stock, fast movers, vendor cost alerts, price history, shrink/loss, and delivery-menu CSV export
+- Vendor CRUD with contacts, products supplied, average weekly spend, and recorded spend
+- Employee roster with roles, standard hourly rates, contact details, and active status
+- Weekly and monthly payroll summaries with a $2,500 weekly planning benchmark
+- Monthly P&L report with CSV export
+- Bulk Entry page for 30-31 day spreadsheet-style monthly entry, CSV import, CSV template download, validation preview, duplicate-date detection, and optional overwrite
+- Mobile-friendly sidebar navigation
+- Loading states and error handling
+- Live Supabase-backed data on every dashboard, report, import, and settings page
+- Profit Leak Finder alerts for high expenses, low fuel margin, deli waste, payroll drag, vendor increases, and low-margin days
+- Smart Import for PDF, Excel, and CSV files with editable review before saving
+- POS Integrations for flexible CSV imports from Gilbarco Passport, Verifone Commander, NCR Counterpoint, Square, Clover, Lightspeed, Shopify POS, Toast, Shift4, Heartland, CStoreOffice / Petrosoft, PDI, and NCR / Radiant
+- POS column mapping templates, duplicate handling, import history, payment breakdowns, department sales, fuel gallons/sales, tax/fees, discounts, refunds, voids, and unmapped/error reports
+- Cash Reconciliation for drawer cash, drops, paid-outs, lottery payouts, POS/card batch matching, bank deposits, over/short alerts, and unreconciled-day reporting
+- Fuel Reconciliation for grade setup, deliveries, tank readings, sold gallons from POS/manual data, book-vs-actual inventory, variance alerts, rack cost, target margin, and suggested pricing
+- Configurable margin settings for grocery, candy, snacks, drinks, cigarettes, vape/nicotine, beer, deli, hot food, lottery, fuel, and other categories
+- Product-level sales tracking with SKU/UPC, quantity, cost, retail, gross profit, margin, category, vendor, and date
+- Product Sales Breakdown, Vendor Spend, and Category Profit reports
+- Docker, Vercel, VS Code launch/tasks, Windows startup scripts, and Electron desktop packaging
+
+## Installation
+
+```bash
+npm install
+```
+
+## Configuration
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env.local
+```
+
+Then fill in:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
+# Preferred for new Supabase projects. NEXT_PUBLIC_SUPABASE_ANON_KEY is still supported.
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` is only needed for server-side maintenance scripts such as `npm run seed` and `npm run test:rls-live`. Never expose it in client-side code or public hosting logs.
+
+Supabase values are required. If they are missing, the app shows a configuration error and does not load fallback data.
+
+## Local Development
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+On Windows, you can also double-click:
+
+```text
+start.bat
+```
+
+Or run PowerShell:
+
+```bash
+./start.ps1
+```
+
+Both startup scripts check for Node.js, install dependencies if `node_modules` is missing, open the browser, and start the dev server.
+
+## VS Code
+
+This repo includes:
+
+- `.vscode/launch.json`
+  - Launch Next.js development server
+  - Debug Next.js server
+  - Debug Chrome browser
+  - Full-stack debugging compound
+- `.vscode/tasks.json`
+  - `npm install`
+  - `npm run dev`
+  - `npm run build`
+  - `npm run lint`
+  - `npm run test`
+
+> Note: Next.js 16 removed the old `next lint` command. The project uses ESLint directly through `npm run lint`.
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. In the Supabase SQL editor, run `supabase/schema.sql` for a fresh full install. A fresh database may instead apply all files in `supabase/migrations/` in numeric order.
+3. In Authentication settings, enable email/password auth.
+4. Copy your project URL and anon key into `.env.local`.
+5. Start the app and sign up.
+
+The app automatically creates a profile in `public.users` and a default store for each authenticated user.
+
+For an existing Phase 7+ database, apply migrations 011 through 014 in numeric order. Migrations 013 and 014 add accurate close-state fields, dedicated close/reopen RPCs, transition-sensitive RLS, and scoped policy cleanup. They do not reset application data or remove unrelated user-defined policies. Earlier databases should apply `001_initial_schema.sql` through `014_phase11_policy_scope_hardening.sql` in numeric order, skipping versions already represented in that database.
+
+To verify installation, use the Supabase Table Editor or SQL editor to confirm `daily_close_statuses`, `store_members`, and the new `cash_flow_entries.match_status` column exist. Then run `npm run test:rls`; run `npm run test:rls-live` only after the service-role environment variable is configured.
+
+For an existing Phase 7 database, `supabase/phase10-trigger-fix.sql` is also available as a focused upgrade. It prevents store deletion cascades from creating inventory reversal rows against a store that is already being removed. Running the full schema applies the same fix.
+
+### Auth, roles, and multi-store setup
+
+The app uses Supabase SSR middleware to protect authenticated routes. `AppShell` then applies active-store page guards, and provider mutations apply action guards before writes. Supabase RLS remains the authoritative database boundary.
+
+`supabase/schema.sql` adds `users.role`, `users.selected_store_id`, and `store_members`.
+
+Roles are stored per store membership as `owner`, `manager`, `employee`, or `accountant`. Owners have full access. Managers can run operations, imports, inventory, reconciliation, close, and reporting but cannot manage members or owner settings. Employees can enter daily sales but cannot access P&L, payroll, vendor spend, reports, exports, or settings. Accountants have read-only access to reports, expenses, payroll, cash flow, and reconciliation history. Owners manage invitations and roles under Settings -> Members; the primary owner cannot be removed or demoted.
+
+| Area | Owner | Manager | Employee | Accountant |
+| --- | --- | --- | --- | --- |
+| Daily sales | Read/write/delete | Read/write/delete | Read/write | No access |
+| Cash reconciliation | Read/write/delete | Read/write/delete | Read/write | Read-only |
+| End-of-Day Close | Close/reopen/delete | Close only | No access | No access |
+| Bank matching | Read/write | Read/write | No access | Read-only |
+| Expenses and payroll | Read/write/delete | Read/write/delete | No access | Read-only |
+| Smart Import and POS | Read/write/rollback | Read/write/rollback | No access | No access |
+| Inventory, vendors, purchase orders | Read/write/delete | Read/write/delete | No access | No access |
+| Reports and exports | Read/export | Read/export | No access | Read/export |
+| Store settings and margins | Read/write | No access | No access | No access |
+| Members and staff administration | Read/write | No access | No access | No access |
+
+Authorization is enforced at three layers: active-route guards keep restricted pages unmounted, provider methods reject unauthorized direct calls, and RLS/RPC checks enforce the active store role at the database boundary.
+
+RLS resolves access through `is_store_member`, `current_store_role`, `can_manage_store`, `can_edit_operations`, and `can_view_financials`. Shared data queries use `store_id`; `user_id` remains creator/owner metadata and is no longer the sole access condition.
+
+### Onboarding and owner workflow
+
+Open `Setup Guide` after signing in. Progress is calculated independently for the active store from saved margins, POS mappings/imports, sales data, vendors, fuel grades, and employees.
+
+The `Add sample data` action requires confirmation and only populates modules that are currently empty. It does not overwrite existing records. Sample records are labeled `Sample onboarding data` so they can be identified and removed before entering production data.
+
+Downloadable templates are available at:
+
+- `/templates/bulk-daily-entry.csv`
+- `/templates/generic-pos-import.csv`
+
+The dashboard workflow checklist stores completion in the current browser, keyed by store and daily, weekly, or monthly period. It does not create accounting records. Use the linked operating page to complete the underlying work, then mark the checklist item complete.
+
+The question-mark button in the authenticated header opens context-sensitive guidance for the current page. Complex import and reconciliation pages include short review steps and relevant template links without obscuring the primary form.
+
+### Cash reconciliation
+
+Open `Cash Reconciliation` from the sidebar to save one reconciliation per store/date. The page tracks starting drawer cash, ending cash, expected cash sales, drops, paid-outs, lottery payouts, POS/card batch totals, EBT, gift card, other tender, bank deposit amount, status, and notes.
+
+Use `Pull expected totals` to pull cash/card/tender values from saved Daily Sales and POS imports for the selected date. The page calculates expected ending cash, cash variance, card batch mismatch, and balanced/needs-review status. Dashboard and Reports show unreconciled days, cash over/short, and card mismatch totals.
+
+### Fuel reconciliation
+
+Open `Fuel Reconciliation` from the sidebar.
+
+The page supports:
+
+- Regular, Midgrade, Premium, Diesel, and custom fuel grades
+- daily beginning and ending tank readings by grade
+- delivery gallons and rack cost by grade
+- sold gallons pulled from POS imports first, then manual Fuel Tracking entries
+- book inventory, actual inventory, variance, and variance alerts
+- retail price, target margin, actual margin, and suggested price
+
+Saving a reconciliation also stores matching delivery and tank reading records. Dashboard and Reports show fuel variance alerts, total gallon variance, and low-margin grade counts.
+
+### Margin settings
+
+Open `Settings` and use the `Margin settings` section to configure gross margin percentages by category. Dashboard, Reports, Profit Leak Finder, and Monthly Totals use product-level gross profit when available, then configured category margins, then default fallback margins.
+
+Reports label profit quality as:
+
+- `Actual from product cost`
+- `Estimated from category margins`
+- `Mixed actual + estimated`
+
+Existing generated columns in Supabase remain as backward-compatible estimates, but app calculations use the configurable margin path.
+
+### Bulk Entry schema notes
+
+`supabase/schema.sql` adds these monthly-entry columns to `daily_sales`:
+
+- `hot_food_sales`
+- `cash_total`
+- `card_total`
+- `expenses`
+- `payroll`
+- generated `fuel_margin`
+- generated `fuel_profit`
+- generated `total_sales`
+- generated `gross_profit`
+- generated `net_profit_estimate`
+
+It also adds a unique index on `(user_id, store_id, date)` so `/bulk-entry` can prevent duplicate dates by default and safely overwrite existing daily sales when requested.
+
+`monthly_totals` is a separate month-level table with one row per `(user_id, store_id, year, month)`. It includes generated columns for total sales, total expenses, fuel margin, fuel profit, gross profit, estimated net profit, expense percentage, gross margin, and net margin. The schema enables RLS and grants authenticated CRUD for the table so it is available through Supabase's Data API on newer projects.
+
+### Optional SQL seed data
+
+After signing up once, copy your user ID from Supabase Authentication > Users.
+
+Edit `supabase/seed.sql` and replace:
+
+```sql
+00000000-0000-0000-0000-000000000000
+```
+
+with your auth user ID, then run the seed script in the Supabase SQL editor.
+
+### TypeScript seed script
+
+You can also seed from the command line:
+
+```bash
+SEED_USER_ID=your-auth-user-id npm run seed
+```
+
+The script creates seeded:
+
+- Sales
+- Expenses
+- Fuel data
+- Payroll data
+- Inventory items, including low-stock examples
+- Vendors, including Capital Candy
+- Employees with owner, manager, and cashier roles
+
+It also intentionally includes a few anomalies so the Profit Leak Finder has alerts to display.
+
+## Database tables
+
+The schema creates:
+
+- `users`
+- `stores`
+- `store_members`
+- `daily_sales`
+- `monthly_totals`
+- `cash_reconciliations`
+- `daily_close_statuses`
+- `expenses`
+- `fuel_entries`
+- `fuel_grades`
+- `fuel_deliveries`
+- `fuel_tank_readings`
+- `fuel_reconciliations`
+- `margin_settings`
+- `lottery_entries`
+- `deli_entries`
+- `payroll_entries`
+- `employees`
+- `pos_systems`
+- `pos_imports`
+- `pos_column_mappings`
+- `pos_import_rows`
+- `imports`
+- `import_rows`
+- `products`
+- `product_sales`
+- `purchase_orders`
+- `purchase_order_items`
+- `inventory_adjustments`
+- `price_history`
+- `vendor_item_costs`
+- `vendors`
+- `product_categories`
+- `category_rules`
+- `vendor_rules`
+- `product_rules`
+
+`products` stores quantity on hand, reorder level, cost, retail price, and notes. `vendors` stores supplier contacts and weekly spend estimates. `employees` stores the staff roster and standard rates; payroll history remains in `payroll_entries`.
+
+Store-owned tables include `user_id` and `store_id`. RLS checks accepted `store_members` membership and role against `store_id`; non-members are blocked.
+
+## End-of-Day Close
+
+Open `/end-of-day-close` as an owner or manager. Select the business date and review inside sales, fuel, lottery, expected/actual cash, cash over/short, card batches, bank deposit, and missing steps. Close requires sales or POS data, cash reconciliation, fuel data when active grades exist, and either completed lottery work or an explicit not-applicable confirmation. A matched bank deposit is complete; a pending deposit remains pending and always requires an override reason. Variances use the store thresholds configured in Settings. Only an owner can reopen a closed day, enforced by the provider, RPC, and RLS transition policy.
+
+Close status is stored separately in `daily_close_statuses`; closing does not modify source sales, POS, fuel, lottery, or reconciliation rows. Dashboard, Reports, and accountant ZIP exports show close coverage.
+
+## Bank Matching
+
+Open `/bank-matching` to review imported `cash_flow_entries`. The suggestion engine matches cash deposits to cash reconciliations, card processor deposits to card batches, vendor ACH rows to expenses, and payroll withdrawals to payroll periods. Owners/managers can approve, reject, manually link, ignore, or classify rows as loan payments, owner draws, or transfers. Accountant access is read-only. Non-operating classifications remain separate from operating P&L.
+
+Each row stores match type/id, confidence, status, reviewer, and review time. End-of-Day Close uses matched cash deposits, and Reports/accountant exports include match state.
+
+## P&L Confidence
+
+`src/lib/pnl-confidence.ts` scores report completeness from 0-100 using closed-day coverage, cash reconciliation, card/bank matching, expense review, fuel reconciliation, product cost coverage, and whether estimates are included. Labels are High confidence, Medium confidence, Low confidence, or Needs review. The score and specific missing items appear on Dashboard, Reports, End-of-Day Close, summary CSV, and accountant ZIP README. It does not convert estimated values into actual values; existing actual/estimated/mixed labels remain visible.
+
+## Inventory Operations
+
+Open `Inventory` and use the four modes:
+
+- `Catalog`: scan or type a barcode, maintain product cost/price/stock, and select products for menu export.
+- `Purchase orders`: create a vendor order with one or more existing products, then receive all outstanding lines into inventory.
+- `Adjustments`: record receipts, shrink, loss, damage, returns, physical counts, and corrections with an audit trail.
+- `Insights`: review reorder suggestions, 60-day dead stock, 30-day fast movers, high-margin products, vendor cost increases, and price changes.
+
+Receiving a purchase order updates quantity on hand, current product cost, vendor item cost history, and price history. Product sales linked to a product automatically reduce quantity on hand; deleting or rolling back that product sale restores the quantity through a reversal adjustment.
+
+The menu export includes only products with `Include in menu export` enabled and writes an Excel-compatible CSV with name, description, category, barcode, price, availability, and active status. It is suitable as a starting import file for DoorDash or another delivery menu, but marketplace-specific required columns may still need to be mapped in that marketplace's merchant portal.
+
+After pulling Phase 7, re-run `supabase/schema.sql` in the Supabase SQL editor before opening the app. This adds the inventory operation tables, product menu fields, indexes, RLS policies, audit triggers, and the receiving/adjustment database functions.
+
+## Smart Import
+
+Open `Smart Import` from the sidebar.
+
+Supported uploads:
+
+- PDF files
+- Excel files (`.xlsx`, with best-effort fallback for legacy `.xls`)
+- CSV files
+
+Common use cases:
+
+- Bank statements
+- Vendor invoices
+- Capital Candy invoices
+- POS sales reports
+- Payroll exports
+- Fuel reports
+- Lottery reports
+
+Upload flow:
+
+1. Upload a PDF, Excel, or CSV file.
+2. The server parses the file and extracts dates, vendors, descriptions, products, SKU/UPC, quantities, unit cost, unit retail price, totals, and raw row data.
+3. The rule-based categorization engine suggests a category, confidence score, and import destination.
+4. Filter rows by needs review, expenses, product sales, department sales, ignored, or duplicate.
+5. Review every row before saving, or use bulk actions to mark reviewed, ignore selected rows, change category, change destination, or assign a vendor.
+6. Edit category, vendor, product, date, amount, and destination as needed.
+7. Toggle rows off if they should be ignored.
+8. Click `Confirm Import`.
+
+Rows are not saved automatically. File hashes prevent duplicate file imports. Row hashes, invoice numbers, bank transaction IDs, and vendor/date/amount keys help identify duplicate rows.
+
+Smart Import records an import lifecycle status:
+
+- `draft`
+- `reviewed`
+- `posted`
+- `rejected`
+- `rolled_back`
+
+Posted imports appear in Import History. Use `Roll back` to remove destination rows created by that import while keeping the original import and row audit trail.
+
+Bank-statement rows such as card processor deposits, cash deposits, loan payments, owner draws, transfers, and fees can be routed to `cash_flow_entries`. Loan payments, owner draws, and transfers are tracked separately from normal operating expenses so they do not distort profit reporting.
+
+Dashboard and Reports also surface this audit data:
+
+- monthly cash-flow deposits from bank imports
+- non-operating cash out for loan payments, owner draws, and transfers
+- net cash movement
+- posted and rolled-back Smart Import counts
+- duplicate and reviewed import-row counts
+- CSV export rows for cash flow and Smart Import status
+
+## Entry Modes
+
+Open `Daily Sales` or `Bulk Entry` from the sidebar. The entry toggle supports:
+
+- `Daily Entry`: one day at a time at `/daily-sales`
+- `Bulk Daily Entry`: 30-31 daily rows at `/bulk-entry`
+- `Monthly Totals Entry`: one total record for a whole month at `/bulk-entry`
+
+### Bulk Daily Entry
+
+Supported workflow:
+
+1. Pick a month to generate 30 or 31 editable daily rows.
+2. Enter daily values in the spreadsheet-style grid, or upload a CSV.
+3. Download a CSV template for the selected month when starting from a spreadsheet.
+4. Click `Preview month` to validate:
+   - missing dates for the selected month
+   - invalid or negative numbers
+   - duplicate dates inside the upload/grid
+   - dates already saved in Supabase
+5. Enable overwrite when saved dates should be replaced.
+6. Click `Save all days`.
+
+CSV headers:
+
+```csv
+date,grocery_sales,deli_sales,hot_food_sales,fuel_gallons_sold,fuel_price_per_gallon,fuel_cost_per_gallon,lottery_sales,beer_sales,cigarette_sales,other_sales,cash_total,card_total,expenses,payroll,notes
+```
+
+Bulk Entry saves daily sales rows and also writes bulk-marked expense/payroll records so the dashboard and P&L reports update through the existing reporting calculations.
+
+### Monthly Totals Entry
+
+Monthly Totals Entry saves to the separate `monthly_totals` table and does not overwrite daily sales rows.
+
+Fields include month, year, grocery, deli, hot food, fuel gallons, fuel revenue, fuel cost, lottery, beer, cigarettes, vape/nicotine, other sales, cash/card sales, payroll, inventory purchases, vendor expenses, utilities, rent/mortgage, insurance, repairs/maintenance, miscellaneous expenses, and notes.
+
+The form calculates total sales, total expenses, fuel margin, fuel profit, gross profit, estimated net profit, expense percentage, gross margin, and net margin. It supports save, edit, delete, browser print/PDF, and Excel-compatible export.
+
+Reports and the dashboard use monthly totals for months where a `monthly_totals` row exists. Daily records remain available and are still used for months without a monthly total.
+
+## POS Integrations
+
+Open `POS Integrations` from the sidebar.
+
+Supported POS presets:
+
+- Gilbarco Passport
+- Verifone Commander
+- NCR Counterpoint
+- Square
+- Clover
+- Lightspeed
+- Shopify POS
+- Toast
+- Shift4
+- Heartland
+- CStoreOffice / Petrosoft
+- PDI
+- NCR / Radiant
+- Generic POS CSV
+
+Workflow:
+
+1. Select the POS system.
+2. Upload a CSV export from the POS or back-office system.
+3. Map each POS column to the app's internal fields. Missing fields can stay skipped.
+4. Save the mapping template for that POS.
+5. Preview rows before saving.
+6. Fix missing dates or bad numbers.
+7. Choose whether duplicate rows should be skipped or overwritten.
+8. Save the import.
+
+Duplicate prevention uses the POS source, date, and transaction/import ID when available. If a transaction ID is missing, the importer falls back to date, row number, department, and item. Imported POS rows are stored separately from manual Daily Entry, Bulk Entry, and Monthly Totals records.
+
+Internal POS fields:
+
+```csv
+date,transaction_id,department_category,item_name,sku_barcode,quantity_sold,gross_sales,discounts,refunds,voids,net_sales,tax,fees,cash_total,card_total,ebt_total,gift_card_total,other_payment_total,fuel_gallons,fuel_sales,fuel_cost,lottery_sales,vendor_category_notes
+```
+
+Sample files:
+
+- `samples/uploads/generic-pos-import-template.csv`
+- `samples/uploads/gilbarco-passport-sample.csv`
+- `samples/uploads/square-pos-sample.csv`
+- `samples/uploads/clover-pos-sample.csv`
+- `samples/uploads/shopify-pos-sample.csv`
+
+Dashboard and reports include POS rows along with manual daily entries. If a Monthly Totals record exists for a month, that monthly total remains the source of truth for that month to avoid double counting detailed daily/POS rows.
+
+POS reports include:
+
+- POS import history
+- Sales by POS source
+- Department/category sales from POS
+- Payment breakdown
+- Fuel sales and gallons
+- Unmapped rows and validation errors
+
+### Authenticated POS browser test
+
+For local POS import testing, create a disposable confirmed account in Supabase Authentication. Store its credentials only in `.env.local` or CI secrets; no predictable browser-test password is committed. `supabase/test-account.sql` documents this setup without creating credentials.
+
+Install Playwright's Chromium browser once:
+
+```bash
+npx playwright install chromium
+```
+
+Start the app, then run the authenticated POS flow:
+
+```bash
+npm run dev
+npm run test:pos-browser
+```
+
+The browser test signs in through `/login`, opens `/pos-integrations`, uploads the generic, Gilbarco Passport, Square, Clover, and Shopify POS sample CSV files, verifies mapping/preview/validation, saves imports, verifies duplicate skip and overwrite, then checks dashboard and reports for POS source, department, payment, and fuel data.
+
+Optional overrides:
+
+```bash
+POS_TEST_BASE_URL=http://localhost:3000 POS_TEST_EMAIL=you@example.com POS_TEST_PASSWORD=secret npm run test:pos-browser
+POS_TEST_HEADED=1 npm run test:pos-browser
+```
+
+### Phase 10 automated tests
+
+The default test suite is CI-safe and does not require a live database:
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+`npm run test` covers financial calculations, End-of-Day Close rules, bank suggestions, P&L confidence, role permissions, Smart Import parsing/classification, POS duplicate handling, Sunoco parsers, migrations, and a static store-membership RLS audit.
+
+Run live two-user Supabase isolation checks separately:
+
+```bash
+npm run test:rls-live
+```
+
+This requires `NEXT_PUBLIC_SUPABASE_URL`, a publishable or anon key, and `SUPABASE_SERVICE_ROLE_KEY`. It creates temporary owner, manager, employee, accountant, and non-member users; verifies role-specific read/write behavior; and removes the test data and users.
+
+With the app running and the browser-test account available, run the isolated critical workflow:
+
+```bash
+npm run dev
+npm run test:e2e
+```
+
+The browser test verifies login, creates a temporary store, saves Daily and Bulk Entry data, imports generic POS and Smart Import CSV files, rolls back Smart Import and verifies inventory restoration, saves cash reconciliation, closes and reopens a day, opens Bank Matching, verifies P&L confidence, downloads a report CSV, and deletes the temporary store. Configure `E2E_TEST_EMAIL`, `E2E_TEST_PASSWORD`, and optionally `E2E_TEST_BASE_URL` or `E2E_TEST_HEADED=1`.
+
+GitHub Actions always runs lint, typecheck, tests, and build. To enable its authenticated integration job, configure these repository secrets:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `E2E_TEST_EMAIL`
+- `E2E_TEST_PASSWORD`
+
+### Learning system
+
+When a user corrects a row category before confirming an import, Smart Import saves that correction as a future rule:
+
+- `vendor_rules` remember vendor-level corrections, such as `Eversource -> Utilities`
+- `product_rules` remember product or SKU/UPC corrections, such as `Marlboro Gold Pack -> Cigarettes / Tobacco`
+- `category_rules` remember reusable description keywords from corrected rows
+
+Future imports check learned rules before built-in guesses.
+
+Confidence scoring:
+
+- `95%` = exact saved rule match
+- `85%` = strong keyword match
+- `70%` = vendor match
+- `50%` = weak guess
+- Below `50%` = Needs Review
+
+### Categorization rules
+
+Smart Import uses vendor names, description keywords, amounts, file type, column names, and product keywords.
+
+Examples:
+
+- `Capital Candy` -> `Capital Candy` / product or inventory import
+- `fuel`, `gas`, `rack`, `gallon` -> `Fuel purchase`
+- `payroll`, `ADP`, `employee` -> `Payroll`
+- `Marlboro`, `Newport`, `Camel` -> `Cigarettes / Tobacco`
+- `Coke`, `Pepsi`, `Red Bull`, `Monster` -> `Drinks`
+- `coffee` -> `Coffee`
+- `chicken`, `pizza`, `sandwich` -> `Deli / Hot Food`
+- `beer`, `Modelo`, `Coors` -> `Beer / Alcohol`
+- `Eversource` -> `Utilities`
+
+PDF parsing uses server-side `pdf-parse`. CSV parsing uses PapaParse. Excel parsing uses `read-excel-file` because the commonly requested `xlsx` package currently has high-severity advisories with no fixed release.
+
+### Sample upload files
+
+Use the upload fixtures in `samples/uploads/` to test Smart Import:
+
+- `capital-candy-invoice.csv`
+- `pos-sales-report.csv`
+- `fuel-report.xlsx`
+- `messy-vendor-invoice.pdf`
+
+## Reporting and accountant exports
+
+Open `Reports` to create owner and accountant-ready reports for the active store. The reporting toolbar supports:
+
+- store selection
+- this week, last week, this month, last month, current quarter, year-to-date, and custom ranges
+- including or excluding category-margin estimates
+- summary CSV export
+- printable PDF export
+- an accountant ZIP package with P&L, weekly P&L, expenses, cash flow and match state, close status, payroll, vendor spend, inventory value, category profitability, cash reconciliation, fuel-by-grade, lottery/deli, and import-history CSV files
+
+The detailed operating P&L separates owner draws, loan payments, and transfers from operating expenses. Payroll expense rows and payroll tracker entries are combined once in the payroll line. Monthly Totals records replace daily/POS records for the same covered month to prevent duplicate sales.
+
+Weekly P&L uses daily and imported records only. A monthly total cannot be allocated accurately to a particular week, so monthly-total-only values are omitted from weekly rows and the page displays that limitation. Turn off `Include estimates` to restrict profit to tracked fuel cost, lottery commission, deli cost/waste, and item-level cost data. Actual-only reports can be partial when those costs have not been entered.
+
+Inventory value is a current snapshot rather than a historical month-end balance. Review the generated `README.txt` in each accountant ZIP for the reporting basis used by that package.
+
+With the local app running and the browser-test account created, run the authenticated reporting flow with:
+
+```bash
+npm run test:reports-browser
+npm run test:inventory-live
+```
+
+The test signs in through the UI, verifies the store and date controls, switches estimated values off and on, checks every major report section, validates CSV/PDF/ZIP downloads, and checks the mobile viewport. Override the defaults with `REPORT_TEST_BASE_URL`, `REPORT_TEST_EMAIL`, `REPORT_TEST_PASSWORD`, or `REPORT_TEST_HEADED=1`.
+
+## Profit calculations
+
+- Fuel profit: `gallons sold * (retail price per gallon - cost per gallon)`
+- Bulk Entry fuel margin: `fuel_price_per_gallon - fuel_cost_per_gallon`
+- Bulk Entry total sales: `grocery + deli + hot_food + lottery + beer + cigarettes + other`
+- Lottery profit: `(lottery sales * commission percentage) - lottery payouts`
+- Deli gross profit: `deli sales - food cost - waste amount`
+- Payroll cost: `hours worked * hourly rate`
+- Net profit estimate: gross profit estimate minus expenses and payroll
+
+## Scripts
+
+```bash
+npm run dev
+npm run typecheck
+npm run lint
+npm run test
+npm run test:rls-live
+npm run test:e2e
+npm run test:reports-browser
+npm run build
+npm run start
+npm run seed
+npm run desktop:dev
+npm run desktop:pack
+npm run desktop:dist
+```
+
+## Docker Deployment
+
+Build and run with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The app will be available at `http://localhost:3000`.
+
+For plain Docker:
+
+```bash
+docker build -t convenience-store-command-center .
+docker run --env-file .env.local -p 3000:3000 convenience-store-command-center
+```
+
+The Docker image uses Next.js standalone output and runs as a non-root user in production mode.
+
+## Vercel Deployment
+
+1. Push the repository to GitHub.
+2. Import it in Vercel.
+3. Set environment variables in Vercel Project Settings:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Deploy.
+
+`vercel.json` includes the Next.js framework, install command, build command, dev command, and `.next` output directory.
+
+## Electron Desktop Launcher
+
+The Electron app bundles the Next.js standalone server and opens it in a desktop window.
+
+Development desktop mode:
+
+```bash
+npm run desktop:dev
+```
+
+Create an unpacked desktop build:
+
+```bash
+npm run desktop:pack
+```
+
+Create a Windows NSIS installer and `StoreCommandCenter.exe` executable:
+
+```bash
+npm run desktop:dist
+```
+
+Electron details:
+
+- App entry: `electron/main.cjs`
+- Preload bridge: `electron/preload.cjs`
+- Windows icon: `build/icon.ico`
+- Installer output: `dist-desktop/`
+- Product name: `StoreCommandCenter`
+- Executable name: `StoreCommandCenter.exe`
+- One-click installer: enabled
+- Desktop and Start Menu shortcuts: enabled
+- Local backend auto-launch: enabled from `.next/standalone/server.js`
+- Offline mode: the desktop shell can launch locally, but authentication and persisted business data require the configured Supabase project
+
+## Production Checks
+
+### Phase 10 manual QA checklist
+
+- Apply migrations 011 through 014, then verify the close-state columns, close/reopen RPCs, and three store variance thresholds.
+- Sign in as an owner, invite manager/employee/accountant accounts, accept each invitation by signing in with the invited email, and verify sidebar/page visibility.
+- Confirm manager operational writes succeed, employee access is limited to Daily Sales, accountant financial pages are read-only, and a non-member cannot query the store.
+- Save daily/POS, cash, fuel, lottery, and bank-deposit data; close the day without an override when all controls pass.
+- Create cash/card/fuel mismatches, verify close requires an override reason, close with a reason, and verify only the owner sees Reopen Day.
+- Import a bank statement, approve/reject/manual-match rows, classify loan/owner draw/transfer rows, and verify Reports excludes them from operating expenses.
+- Compare Dashboard, Reports, summary CSV, PDF, and accountant ZIP values and confirm actual/estimated/mixed labels remain accurate.
+- Check desktop and mobile layouts for close, bank tables, member controls, and report cards.
+- Run `npm run lint`, `npm run typecheck`, `npm run test`, and `npm run build`; run live RLS/E2E tests when required secrets and a migrated test project are available.
+
+Known limitations: bank suggestions use deterministic date/amount/vendor heuristics rather than bank-feed settlement APIs; employee close assignment is not modeled, so the close page is limited to owner/manager; invitations are email claims rather than outbound email delivery; and P&L confidence measures completeness, not audit assurance. Live RLS and browser tests require a disposable migrated Supabase project plus service-role/test credentials.
+
+### Backup and restore
+
+Before applying a release migration, confirm Supabase automated backups are enabled and record the latest successful backup time. For a separate logical backup, use a current Supabase CLI with `supabase db dump --linked --file backup-before-release.sql`, or use `pg_dump` with the database connection string. Keep backups encrypted and outside the repository.
+
+Restore into a disposable project first, apply migrations through `014_phase11_policy_scope_hardening.sql`, and run the live RLS and browser suites. Do not rehearse destructive restore operations against production. See `docs/PHASE11_RELEASE_AUDIT.md` for the completion matrix and acceptance checklist.
+
+Before deploying:
+
+```bash
+npm audit --omit=dev
+npm run lint
+npm run build
+```
+
+## Troubleshooting
+
+### `npm run dev` does not open
+
+- Confirm Node.js 22+ is installed: `node --version`
+- Reinstall dependencies: `rm -rf node_modules package-lock.json && npm install`
+- Check that port `3000` is available.
+
+### Supabase login works but no data appears
+
+- Confirm `supabase/schema.sql` was run.
+- Confirm RLS policies exist.
+- Confirm the user signed in with the same Supabase project configured in `.env.local`.
+
+### Seed script fails with a foreign key error
+
+`SEED_USER_ID` must be an existing Supabase Auth user ID from Authentication > Users.
+
+### Docker build fails copying public assets
+
+Run from the repository root. The repo includes a `public/` directory and Next.js standalone output is generated during the Docker build.
+
+### Electron packaged app cannot start
+
+Run:
+
+```bash
+npm run build
+npm run desktop:prepare
+```
+
+Then verify `.next/standalone/server.js` exists before running `npm run desktop:pack` or `npm run desktop:dist`.

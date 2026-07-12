@@ -1,0 +1,6 @@
+-- Do not commit or deploy a predictable test password.
+--
+-- Create a disposable confirmed user in Supabase Authentication, then set
+-- E2E_TEST_EMAIL and E2E_TEST_PASSWORD in .env.local or GitHub Actions secrets.
+-- The application creates the public.users profile and first store on sign-in.
+-- Remove the account and its stores after release acceptance testing.

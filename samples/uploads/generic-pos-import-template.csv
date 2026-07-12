@@ -1,0 +1,2 @@
+"date","transaction_id","department_category","item_name","sku_barcode","quantity_sold","gross_sales","discounts","refunds","voids","net_sales","tax","fees","cash_total","card_total","ebt_total","gift_card_total","other_payment_total","fuel_gallons","fuel_sales","fuel_cost","lottery_sales","vendor_category_notes"
+"2026-07-01","TXN-1001","Grocery","Bottled Water 20 oz","1001001001","12","17.88","0.00","0.00","0.00","17.88","1.07","0.00","25.00","120.00","0.00","0.00","0.00","0.00","0.00","0.00","0.00","Imported sample row"

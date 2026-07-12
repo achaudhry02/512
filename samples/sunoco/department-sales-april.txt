@@ -1,0 +1,7 @@
+Department Sales Report
+Report Period: 04/01/2026 - 04/30/2026
+Dept. Name Gross Sales Items Refunds Net Items Refund Amount Discount Amount Net Sales %of Sales
+Auto $3,223.71 367 0 367 $0.00 $0.00 $3,223.71 4.32%
+BEER $16,840.04 3,234 1 3,233 -$11.99 $0.00 $16,828.05 22.55%
+Cig Pack $20,820.40 2,160 0 2,160 $0.00 -$504.84 $20,315.56 27.22%
+Grocery NTX $34,262.39 4,800 0 4,800 $0.00 $0.00 $34,262.39 45.91%
